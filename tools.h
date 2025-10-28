@@ -1,29 +1,18 @@
 #ifndef TOOLS_H
 #define TOOLS_H
 
-#define ROUNDS 10000
-
-typedef struct NetStruct {
-    double weights_ih[2][2];
-    double weights_ho[2][1];
-
-    double bias_hidden[2];
-    double bias_output[1];
-
-    double output_hidden[2];
-    double output_final[1];
-} Net;
-
-
+#include "nn.h"
 
 void print_net(const Net *net, int verbose);
 double randinit();
-void init_net(Net *net);
+double xavier_init(int fan_in, int fan_out);
 double sigmoid(double input);
 double sigmoid_derivative(double sigmoid_output);
 
 void shuffle_array(int n, double *arr);
-void init_xor_data(const char *filename, double inputs[4][2], double expected[4]);
+void load_dataset(const char *filename, double ***inputs_out, double **expected_out, int *num_samples_out, int input_size);
+void free_dataset(double **inputs, double *expected, int num_samples);
 int * init_order_array(int n);
 
+char *trim_copy(char *src, char *dest, int destsize);
 #endif // TOOLS_H
