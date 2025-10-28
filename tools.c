@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
+#include <ctype.h>
 
 #include "tools.h"
 
@@ -67,9 +69,7 @@ void init_net(Net *net) {
 
 
     for (int i = 0; i < 2; ++i) {
-        for (int j = 0; j < 1; ++j) {
-            net->output_hidden[i] = 0;
-        }
+        net->output_hidden[i] = 0;
     }
 }
 
@@ -120,4 +120,16 @@ int *init_order_array(int n) {
         arr[j] = tmp;
     }
     return arr;
+}
+
+char *trim_copy(char *src, char *dest, int destsize) {
+    while (isspace(*src)) src++;
+    char *end = src + strlen(src) - 1;
+    while (end > src && isspace(*end)) end--;
+
+    int len = end - src + 1;
+    if (len >= destsize) len = destsize - 1;
+    memcpy(dest, src, len);
+    dest[len] = '\0';
+    return dest;
 }
