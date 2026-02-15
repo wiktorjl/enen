@@ -8,7 +8,7 @@
 
 int main() {
     double learning_rates[] = {0.01, 0.1, 0.5, 1.0};
-    int rounds[] = {1000, 5000, 10000, 20000};
+    int rounds[] = {10000, 25000, 50000, 100000};
     int num_learning_rates = sizeof(learning_rates) / sizeof(double);
     int num_rounds = sizeof(rounds) / sizeof(int);
 
