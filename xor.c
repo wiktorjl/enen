@@ -38,6 +38,13 @@ int main() {
     double mse = test_nn_and_get_mse(inputs, expected, num_samples, net);
     printf("\nFinal MSE: %.6f\n", mse);
 
+    printf("\nSaving model to xor.model...\n");
+    if (save_net(net, "xor.model") == 0) {
+        printf("Model saved successfully\n");
+    } else {
+        fprintf(stderr, "Failed to save model\n");
+    }
+
     free_dataset(inputs, expected, num_samples);
     free_net(net);
     free_config(config);

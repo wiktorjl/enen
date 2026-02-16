@@ -139,6 +139,67 @@ int *init_order_array(int n) {
     return arr;
 }
 
+void load_dataset_multiclass(const char *filename, double ***inputs_out, double ***expected_out, int *num_samples_out, int input_size, int num_classes) {
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        perror("Failed to open dataset file");
+        exit(1);
+    }
+
+    int capacity = 10;
+    int count = 0;
+    double **inputs = malloc(sizeof(double*) * capacity);
+    double **expected = malloc(sizeof(double*) * capacity);
+
+    char line[4096];
+    while (fgets(line, sizeof(line), f)) {
+        if (count >= capacity) {
+            capacity *= 2;
+            inputs = realloc(inputs, sizeof(double*) * capacity);
+            expected = realloc(expected, sizeof(double*) * capacity);
+        }
+
+        inputs[count] = malloc(sizeof(double) * input_size);
+        expected[count] = calloc(num_classes, sizeof(double));
+
+        char *token = strtok(line, ",");
+        int col = 0;
+
+        // Read input features
+        while (token && col < input_size) {
+            inputs[count][col] = atof(token);
+            token = strtok(NULL, ",");
+            col++;
+        }
+
+        // Read label and convert to one-hot encoding
+        if (token) {
+            int label = atoi(token);
+            if (label >= 0 && label < num_classes) {
+                expected[count][label] = 1.0;
+            } else {
+                fprintf(stderr, "Warning: Invalid label %d at sample %d\n", label, count);
+            }
+        }
+        count++;
+    }
+
+    fclose(f);
+
+    *inputs_out = inputs;
+    *expected_out = expected;
+    *num_samples_out = count;
+}
+
+void free_dataset_multiclass(double **inputs, double **expected, int num_samples) {
+    for (int i = 0; i < num_samples; i++) {
+        free(inputs[i]);
+        free(expected[i]);
+    }
+    free(inputs);
+    free(expected);
+}
+
 char *trim_copy(char *src, char *dest, int destsize) {
     while (isspace(*src)) src++;
     char *end = src + strlen(src) - 1;

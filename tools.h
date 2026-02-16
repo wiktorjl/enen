@@ -14,5 +14,9 @@ void load_dataset(const char *filename, double ***inputs_out, double **expected_
 void free_dataset(double **inputs, double *expected, int num_samples);
 int * init_order_array(int n);
 
+// Multi-class dataset loading
+void load_dataset_multiclass(const char *filename, double ***inputs_out, double ***expected_out, int *num_samples_out, int input_size, int num_classes);
+void free_dataset_multiclass(double **inputs, double **expected, int num_samples);
+
 char *trim_copy(char *src, char *dest, int destsize);
 #endif // TOOLS_H
