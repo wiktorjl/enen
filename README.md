@@ -48,6 +48,9 @@ All executables are placed in `build/`, and trained models are saved to `models/
 ├── conf/               # Configuration files
 │   ├── xornet.conf         # XOR network configuration
 │   └── digits.conf         # Digit network configuration
+├── datasets/           # Training datasets
+│   ├── xor_dataset.csv     # XOR training data (4 samples)
+│   └── digits_dataset.csv  # Digit training data (10 samples)
 ├── build/              # Compiled executables and object files
 ├── models/             # Saved neural network models
 ├── docs/               # Documentation
@@ -227,7 +230,7 @@ hidden_layers=3,4,3
 output_size=1
 learning_rate=0.5
 epochs=10000
-dataset=xor_dataset.csv
+dataset=datasets/xor_dataset.csv
 ```
 
 `conf/digits.conf`:
@@ -237,7 +240,7 @@ hidden_layers=128,64
 output_size=10
 learning_rate=0.5
 epochs=50000
-dataset=digits_dataset.csv
+dataset=datasets/digits_dataset.csv
 ```
 
 ## How the Neural Network Works

@@ -105,7 +105,7 @@ int digits[10][8][8] = {
 };
 
 int main() {
-    FILE *f = fopen("digits_dataset.csv", "w");
+    FILE *f = fopen("datasets/digits_dataset.csv", "w");
     if (!f) {
         perror("Failed to create dataset file");
         return 1;
@@ -128,7 +128,7 @@ int main() {
     }
 
     fclose(f);
-    printf("Dataset created: digits_dataset.csv (10 samples)\n");
+    printf("Dataset created: datasets/digits_dataset.csv (10 samples)\n");
 
     // Print visual representation
     printf("\nVisual representation of digits:\n");

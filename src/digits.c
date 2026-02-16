@@ -19,7 +19,7 @@ void print_help(const char *program_name) {
     printf("  --help          Display this help message\n\n");
     printf("Default behavior (no options):\n");
     printf("  - Load configuration from conf/digits.conf\n");
-    printf("  - Load dataset from digits_dataset.csv\n");
+    printf("  - Load dataset from datasets/digits_dataset.csv\n");
     printf("  - Train new network\n");
     printf("  - Save trained model to digits.model\n\n");
     printf("Examples:\n");
