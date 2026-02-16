@@ -69,8 +69,8 @@ void print_help(const char *program_name) {
     printf("  - Train N networks from scratch with different random initializations\n");
     printf("  - Report accuracy statistics across all runs\n\n");
     printf("Examples:\n");
-    printf("  %s 100                    # Train 100 times, show statistics\n", program_name);
-    printf("  %s --load xor.model        # Test pre-trained model once\n", program_name);
+    printf("  %s 100                         # Train 100 times, show statistics\n", program_name);
+    printf("  %s --load models/xor.model     # Test pre-trained model once\n", program_name);
 }
 
 int main(int argc, char *argv[]) {

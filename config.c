@@ -16,6 +16,15 @@ int validate_filename(const char * filename) {
     return 1;
 }
 
+/*
+ * load_config() - Load network configuration from file
+ *
+ * Parses a simple key=value format configuration file.
+ * Required fields: input_size, hidden_layers, output_size, learning_rate, epochs, dataset
+ *
+ * Returns:
+ *   Pointer to Config structure, or NULL on error
+ */
 Config* load_config(const char* filename) {
 
     Config* config = malloc(sizeof(Config));
@@ -59,7 +68,11 @@ Config* load_config(const char* filename) {
                 // printf("Line: %s\n", line_trimmed);
                 char * key = strtok(line_trimmed, "=");
                 char * val = strtok(NULL, "=");
-                // printf("Key=%s, Val=%s\n", key, val);
+
+                // Skip lines without '=' or with empty key/value
+                if (!key || !val || strlen(key) == 0 || strlen(val) == 0) {
+                    continue;
+                }
 
                 if(strcmp(key, "input_size") == 0) {
                     // printf("Storing config input_size=%s\n", val);
@@ -97,13 +110,46 @@ Config* load_config(const char* filename) {
                         config->dataset_path[sizeof(config->dataset_path) - 1] = '\0';
                     }
                 } else {
-                    printf("Unknown key: %s\n", key);
-                    printf("Storing config unknown_key=%s\n", val);
+                    fprintf(stderr, "Warning: Unknown configuration key '%s' (ignored)\n", key);
                 }
             }
         } while(res);
     }
     fclose(f);
+
+    // Validate required fields
+    if (config->input_size <= 0) {
+        fprintf(stderr, "Error: Invalid or missing 'input_size' in config\n");
+        free_config(config);
+        return NULL;
+    }
+    if (config->output_size <= 0) {
+        fprintf(stderr, "Error: Invalid or missing 'output_size' in config\n");
+        free_config(config);
+        return NULL;
+    }
+    if (config->num_hidden_layers < 0) {
+        fprintf(stderr, "Error: Invalid 'hidden_layers' in config\n");
+        free_config(config);
+        return NULL;
+    }
+    if (config->learning_rate <= 0.0 || config->learning_rate > 10.0) {
+        fprintf(stderr, "Error: Invalid 'learning_rate' %.2f (expected 0.0 < rate <= 10.0)\n",
+                config->learning_rate);
+        free_config(config);
+        return NULL;
+    }
+    if (config->epochs <= 0) {
+        fprintf(stderr, "Error: Invalid or missing 'epochs' in config\n");
+        free_config(config);
+        return NULL;
+    }
+    if (strlen(config->dataset_path) == 0) {
+        fprintf(stderr, "Error: Missing 'dataset' path in config\n");
+        free_config(config);
+        return NULL;
+    }
+
     return config;
 }
 

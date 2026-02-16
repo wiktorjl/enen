@@ -1,122 +1,191 @@
-# XOR Neural Network in C
+# Neural Network in C
 
-A simple feedforward neural network implementation in C that learns the XOR function using backpropagation. This project demonstrates fundamental neural network concepts including forward propagation, backpropagation, and gradient descent optimization.
+A clean, educational neural network implementation in C that demonstrates fundamental concepts through two examples: the classic XOR problem and 8×8 handwritten digit recognition. Built from scratch with no external ML libraries, this project shows how neural networks work at a low level using backpropagation and gradient descent.
+
+## Features
+
+- **Pure C implementation** - No external ML libraries, educational and transparent
+- **Dynamic architecture** - Configure any network size via config files
+- **Multi-class classification** - Supports binary and multi-class problems
+- **Model persistence** - Save and load trained models
+- **OpenMP parallelization** - Efficient training on multi-core systems
+- **Comprehensive tooling** - Training, testing, hyperparameter tuning, and statistical analysis
 
 ## Table of Contents
 
 - [Building the Project](#building-the-project)
+- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
 - [Available Programs](#available-programs)
 - [Configuration](#configuration)
 - [How the Neural Network Works](#how-the-neural-network-works)
-  - [The XOR Problem](#the-xor-problem)
-  - [Network Architecture](#network-architecture)
-  - [Forward Propagation](#forward-propagation)
-  - [Backpropagation](#backpropagation)
-  - [Training Process](#training-process)
-  - [Activation Function](#activation-function)
+- [Deep Dive: DIGITS.md](#deep-dive)
 
 ## Building the Project
 
-The project uses a Makefile for compilation. Ensure you have GCC and the math library installed.
+Requirements: GCC with OpenMP support, GNU Make
 
-### Build all programs:
 ```bash
-make all
+make all    # Build all programs
+make clean  # Remove build artifacts
 ```
 
-### Build individual programs:
-```bash
-make xor       # Main training and testing program
-make gym       # Hyperparameter tuning utility
-make accuracy  # Statistical accuracy analysis
+All executables are placed in `build/`, and trained models are saved to `models/`.
+
+## Project Structure
+
+```
+.
+├── build/              # Compiled executables and object files
+├── models/             # Saved neural network models
+├── docs/               # Documentation
+│   └── DIGITS.md       # In-depth neural network walkthrough
+├── nn.c/nn.h           # Core neural network implementation
+├── config.c/config.h   # Configuration file parser
+├── tools.c/tools.h     # Utilities and data loading
+├── xor.c               # XOR training program
+├── digits.c            # 8×8 digit recognition program
+├── generate_digits.c   # Dataset generator for digits
+├── gym.c               # Hyperparameter tuning tool
+├── accuracy.c          # Statistical analysis tool
+├── xornet.conf         # XOR network configuration
+├── digits.conf         # Digit network configuration
+└── Makefile            # Build system
 ```
 
-### Clean build artifacts:
+## Quick Start
+
+### Train the XOR Network
+
 ```bash
-make clean
+make xor
+./build/xor
+```
+
+Output shows the learned XOR function:
+```
+=== What did we learn? ===
+[0,0] → 0.043 (want 0)
+[0,1] → 0.967 (want 1)
+[1,0] → 0.982 (want 1)
+[1,1] → 0.021 (want 0)
+```
+
+### Train the Digit Classifier
+
+```bash
+make digits generate_digits
+./build/generate_digits    # Create training data
+./build/digits              # Train network
+
+# Test saved model
+./build/digits --load models/digits.model
 ```
 
 ## Available Programs
 
-### 1. `xor` - Main Neural Network Training
+### 1. `xor` - XOR Function Learning
 
-The primary program that trains a neural network on the XOR problem and displays the results.
-
-**Usage:**
-```bash
-./xor
-```
-
-**What it does:**
-- Loads configuration from `xornet.conf`
-- Initializes the network with random weights
-- Loads training data from the configured dataset file
-- Trains the network using backpropagation
-- Tests and displays the learned XOR function outputs
-
-**Example output:**
-```
-=== What did we learn? ===
-[0,0] → 0.043 (want 0)
-[1,1] → 0.021 (want 0)
-[0,1] → 0.967 (want 1)
-[1,0] → 0.982 (want 1)
-```
-
-### 2. `gym` - Hyperparameter Tuning
-
-A utility that tests different combinations of learning rates and training rounds to find optimal hyperparameters.
+Trains a neural network to learn the XOR function, demonstrating that neural networks can solve non-linearly separable problems.
 
 **Usage:**
 ```bash
-./gym
+./build/xor
 ```
 
-**What it does:**
-- Tests learning rates: 0.01, 0.1, 0.5, 1.0
-- Tests training rounds: 1000, 5000, 10000, 20000
-- Calculates Mean Squared Error (MSE) for each combination
-- Outputs results in a formatted table
+**Features:**
+- Trains on 4 XOR examples: (0,0)→0, (0,1)→1, (1,0)→1, (1,1)→0
+- Configurable architecture via `xornet.conf`
+- Saves trained model to `models/xor.model`
+- Displays final predictions and Mean Squared Error
 
-**Example output:**
+### 2. `digits` - Handwritten Digit Recognition
+
+Classifies 8×8 pixel handwritten digits (0-9) using a multi-layer neural network.
+
+**Usage:**
+```bash
+./build/digits                              # Train new model
+./build/digits --load models/digits.model   # Load trained model
+./build/digits --help                       # Show help
+```
+
+**Features:**
+- 64 input neurons (8×8 pixels)
+- Two hidden layers (128 and 64 neurons by default)
+- 10 output neurons (one per digit)
+- ~17,000 trainable parameters
+- Multi-threaded training with OpenMP
+- Model serialization for instant testing
+
+**Sample Output:**
+```
+Network Architecture: 64-128-64-10
+Using 16 OpenMP threads
+Training network for 50000 epochs...
+Final MSE: 0.000008
+
+Sample 0: predicted=0, expected=0 [OK]
+Sample 1: predicted=1, expected=1 [OK]
+...
+Accuracy: 10/10 (100.0%)
+```
+
+### 3. `generate_digits` - Training Data Generator
+
+Creates the 8×8 pixel representations of digits 0-9 for training.
+
+**Usage:**
+```bash
+./build/generate_digits
+```
+
+Generates `digits_dataset.csv` with hardcoded pixel patterns for each digit.
+
+### 4. `gym` - Hyperparameter Tuning
+
+Systematically tests different learning rates and epoch counts to find optimal training parameters.
+
+**Usage:**
+```bash
+./build/gym                               # Test from scratch
+./build/gym --load models/xor.model       # Fine-tune existing model
+./build/gym --help                        # Show help
+```
+
+**Test Matrix:**
+- Learning rates: 0.01, 0.1, 0.5, 1.0
+- Epochs: 10,000, 25,000, 50,000, 100,000
+
+**Output:**
 ```
 | Learning Rate | Rounds | MSE      |
 |---------------|--------|----------|
-| 0.01          | 1000   | 0.234567 |
-| 0.01          | 5000   | 0.098765 |
+| 0.01          | 10000  | 0.234567 |
+| 0.50          | 50000  | 0.000123 |
 ...
 ```
 
-### 3. `accuracy` - Statistical Analysis
+### 5. `accuracy` - Statistical Analysis
 
-Runs multiple training sessions with random weight initializations to analyze training consistency and success rate.
+Evaluates training consistency by running multiple independent training sessions with different random initializations.
 
 **Usage:**
 ```bash
-./accuracy <number_of_runs>
+./build/accuracy 100                         # Train 100 times
+./build/accuracy --load models/xor.model     # Test saved model
+./build/accuracy --help                      # Show help
 ```
 
-**Example:**
-```bash
-./accuracy 100  # Run 100 training sessions
-```
+**Provides:**
+- Average accuracy across all runs
+- Standard deviation and standard error
+- Min/max accuracy
+- ASCII histogram of accuracy distribution
 
-**What it does:**
-- Runs N independent training sessions
-- Tracks accuracy for each run (0%, 25%, 50%, 75%, or 100%)
-- Displays live progress with running average
-- Calculates statistical measures:
-  - Average accuracy
-  - Standard deviation
-  - Standard error
-  - Min/Max accuracy
-- Shows ASCII histogram of accuracy distribution
-
-**Example output:**
+**Sample Output:**
 ```
-Run    1/100  | Acc: 100.0% | Avg: 100.0% [########################################]
-Run    2/100  | Acc:  75.0% | Avg:  87.5% [###################################     ]
-...
+Run   50/100  | Acc: 100.0% | Avg:  94.5% [#####################################]
 
 --- Statistical Summary over 100 runs ---
 Average Accuracy:  94.50%
@@ -124,13 +193,6 @@ Standard Deviation: 12.34%
 Standard Error:     1.23%
 Minimum Accuracy:  50.00%
 Maximum Accuracy: 100.00%
-
---- Accuracy Distribution Histogram ---
-  0.0% | [          ] (0 runs)
- 25.0% | [####      ] (2 runs)
- 50.0% | [########  ] (4 runs)
- 75.0% | [############] (6 runs)
-100.0% | [##################################################] (88 runs)
 ```
 
 ## Configuration
@@ -147,12 +209,34 @@ dataset=xor_dataset.csv
 ```
 
 **Configuration parameters:**
-- `input_size`: Number of input neurons (2 for XOR: x and y)
-- `hidden_layers`: Sizes of hidden layers (currently supports only 2 hidden neurons in code)
-- `output_size`: Number of output neurons (1 for XOR)
-- `learning_rate`: Step size for gradient descent (default: 0.5)
-- `epochs`: Number of training iterations (default: 10000)
+- `input_size`: Number of input neurons (2 for XOR, 64 for digits)
+- `hidden_layers`: Comma-separated layer sizes (e.g., `3,4,3` for three hidden layers)
+- `output_size`: Number of output neurons (1 for XOR, 10 for digits)
+- `learning_rate`: Step size for gradient descent (typical: 0.1-0.5)
+- `epochs`: Number of training iterations (10,000-100,000)
 - `dataset`: Path to CSV file containing training data
+
+**Example configurations:**
+
+`xornet.conf`:
+```
+input_size=2
+hidden_layers=3,4,3
+output_size=1
+learning_rate=0.5
+epochs=10000
+dataset=xor_dataset.csv
+```
+
+`digits.conf`:
+```
+input_size=64
+hidden_layers=128,64
+output_size=10
+learning_rate=0.5
+epochs=50000
+dataset=digits_dataset.csv
+```
 
 ## How the Neural Network Works
 
@@ -174,88 +258,125 @@ XOR requires at least one hidden layer to learn, making it an ideal benchmark fo
 
 ### Network Architecture
 
-This implementation uses a **2-2-1 architecture**:
+The implementation supports **fully dynamic architectures** configured via config files.
 
+**XOR Example (2-3-4-3-1 architecture):**
 ```
-Input Layer (2 neurons)  →  Hidden Layer (2 neurons)  →  Output Layer (1 neuron)
-      [x]                          [h₁]                        [y]
-      [y]                          [h₂]
+Input Layer (2)  →  Hidden (3)  →  Hidden (4)  →  Hidden (3)  →  Output (1)
+      [x]               [h₁]          [h₁]          [h₁]            [y]
+      [y]               [h₂]          [h₂]          [h₂]
+                        [h₃]          [h₃]          [h₃]
+                                      [h₄]
+```
+
+**Digits Example (64-128-64-10 architecture):**
+```
+Input (64 pixels)  →  Hidden (128)  →  Hidden (64)  →  Output (10 classes)
 ```
 
 **Components:**
-- **Weights (input→hidden)**: `weights_ih[2][2]` - 4 weights connecting input to hidden layer
-- **Weights (hidden→output)**: `weights_ho[2][1]` - 2 weights connecting hidden to output layer
-- **Biases (hidden)**: `bias_hidden[2]` - 2 bias values for hidden neurons
-- **Bias (output)**: `bias_output[1]` - 1 bias value for output neuron
+- **Weights**: Matrices connecting each layer pair (dynamically allocated)
+- **Biases**: One bias value per neuron in hidden and output layers
+- **Activations**: Cached outputs from each layer during forward pass
 
 ### Forward Propagation
 
-Forward propagation computes the network's output for a given input by passing data through each layer.
+Forward propagation computes the network's output by passing data through each layer sequentially.
+
+**Algorithm (nn.c:75-90):**
+
+For each layer transition:
+1. **Weighted Sum**: Sum all inputs × their weights, plus bias
+2. **Activation**: Apply sigmoid function to the sum
+3. **Pass Forward**: Use result as input to next layer
 
 **Mathematical formulation:**
-
-1. **Hidden layer calculation** (nn.c:12-13):
 ```
-h₁ = sigmoid(x·w_ih[0][0] + y·w_ih[0][1] + bias_h[0])
-h₂ = sigmoid(x·w_ih[1][0] + y·w_ih[1][1] + bias_h[1])
-```
-
-2. **Output layer calculation** (nn.c:16):
-```
-output = sigmoid(h₁·w_ho[0][0] + h₂·w_ho[1][0] + bias_o[0])
+For neuron j in layer L+1:
+    z_j = bias_j + Σ(activation_i × weight_ij)  // sum over layer L
+    activation_j = sigmoid(z_j) = 1 / (1 + e^(-z_j))
 ```
 
-Each neuron:
-1. Computes weighted sum of inputs plus bias
-2. Applies sigmoid activation function
-3. Passes result to next layer
+**Code Implementation:**
+```c
+for (int layer = 0; layer < num_layers - 1; layer++) {
+    for (int j = 0; j < next_size; j++) {
+        double sum = biases[layer][j];
+        for (int i = 0; i < current_size; i++) {
+            sum += activations[layer][i] * weights[layer][i * next_size + j];
+        }
+        activations[layer + 1][j] = sigmoid(sum);
+    }
+}
+```
 
 ### Backpropagation
 
-Backpropagation is the learning algorithm that adjusts weights to minimize prediction error. It works backward through the network, computing gradients using the chain rule of calculus.
+Backpropagation adjusts weights to minimize prediction error by propagating error gradients backward through the network.
 
-**Algorithm steps:**
+**Three Phases:**
 
-1. **Calculate output error** (nn.c:20):
+**1. Output Layer Error (nn.c:101-106)**
 ```
-error_output = (expected - actual) × sigmoid'(output)
-```
-
-2. **Update output layer weights** (nn.c:22-24):
-```
-w_ho[i] += learning_rate × error_output × h[i]
-bias_output += learning_rate × error_output
+For each output neuron:
+    error = expected - actual
+    delta = error × sigmoid'(activation)
 ```
 
-3. **Calculate hidden layer errors** (nn.c:26-29):
+**2. Hidden Layer Error Propagation (nn.c:108-119)**
 ```
-error_hidden[j] = error_output × w_ho[j] × sigmoid'(h[j])
-```
-
-4. **Update hidden layer weights** (nn.c:32-37):
-```
-w_ih[i][j] += learning_rate × error_hidden[i] × input[j]
-bias_hidden[i] += learning_rate × error_hidden[i]
+For each hidden layer (backward):
+    For each neuron:
+        error = Σ(next_layer_delta × connecting_weight)
+        delta = error × sigmoid'(activation)
 ```
 
-**Key insight:** Each weight is adjusted proportionally to:
-- How much it contributed to the error (gradient)
-- The learning rate (step size)
-- The activation of the neuron feeding into it
+**3. Weight Updates (nn.c:122-136)**
+```
+For each weight:
+    weight += learning_rate × next_neuron_delta × current_activation
+For each bias:
+    bias += learning_rate × neuron_delta
+```
+
+**Sigmoid Derivative:**
+```c
+sigmoid'(x) = sigmoid(x) × (1 - sigmoid(x))
+```
+
+This convenient form allows computing the derivative directly from the forward pass output.
+
+**Key Insight:** Weights are adjusted proportionally to:
+- **Error gradient** (how wrong the prediction was)
+- **Learning rate** (step size for updates)
+- **Input activation** (how much this neuron contributed)
 
 ### Training Process
 
-The training loop (nn.c:42-63) follows this procedure:
+**Stochastic Gradient Descent with Shuffling (nn.c:145-157, nn.c:318-330)**
 
-1. **For each epoch:**
-   - Shuffle input order to prevent bias
-   - For each training example:
-     - Perform forward pass to get prediction
-     - Perform backward pass to update weights
+```
+For each epoch:
+    1. Shuffle training examples
+    2. For each example:
+        a. Forward pass → compute prediction
+        b. Backward pass → compute gradients
+        c. Update weights immediately
+```
 
-2. **Input shuffling:** Random order each epoch prevents the network from memorizing sequence patterns
+**Why Shuffle?**
+Random order each epoch prevents the network from:
+- Memorizing the sequence
+- Overfitting to the order
+- Getting stuck in poor local minima
 
-3. **Convergence:** After enough iterations, weights stabilize and the network learns the XOR mapping
+**Convergence:**
+After sufficient epochs, weights stabilize and the network learns to map inputs to correct outputs. Typical convergence:
+- **XOR**: ~5,000-10,000 epochs
+- **Digits**: ~30,000-50,000 epochs
+
+**Parallelization:**
+The implementation uses OpenMP to parallelize neuron computations within each layer, significantly speeding up training on multi-core systems.
 
 ### Activation Function
 
@@ -285,24 +406,37 @@ This derivative is used during backpropagation to calculate gradients. The conve
 
 ---
 
-## Project Structure
+## Deep Dive
 
-```
-.
-├── xor.c              # Main program entry point
-├── nn.c               # Neural network forward/backward pass logic
-├── nn.h               # Neural network function declarations
-├── tools.c            # Utility functions (sigmoid, initialization, data loading)
-├── tools.h            # Utility function declarations and Net struct definition
-├── config.c           # Configuration file parsing
-├── config.h           # Configuration struct definition
-├── gym.c              # Hyperparameter tuning utility
-├── accuracy.c         # Statistical accuracy analysis tool
-├── Makefile           # Build system configuration
-├── xornet.conf        # Network configuration file
-└── xor_dataset.csv    # Training data (4 XOR examples)
-```
+For a comprehensive, blog-post quality walkthrough of how neural networks work using the digits classifier as an example, see:
+
+**[docs/DIGITS.md](docs/DIGITS.md)** - A complete primer on neural networks for software engineers
+
+This document covers:
+- Network architecture and data structures
+- Forward and backward propagation with detailed examples
+- Training process and convergence
+- Model serialization
+- Multi-threading with OpenMP
+- Mathematical foundations
+- Complete code reference guide
+
+Perfect for understanding neural networks from first principles!
+
+## Performance
+
+**Training Speed (50,000 epochs, 10 samples):**
+- Single-threaded: ~30-40 seconds
+- Multi-threaded (16 cores): ~5-8 seconds
+
+**Accuracy:**
+- XOR: 100% (4/4 samples)
+- Digits: 100% (10/10 samples) on training set
+
+**Model Size:**
+- XOR model: ~1 KB
+- Digits model: ~135 KB
 
 ## License
 
-This is an educational project demonstrating basic neural network concepts.
+This is an educational project demonstrating neural network fundamentals. Use freely for learning and teaching.

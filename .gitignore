@@ -1,1 +1,5 @@
-*.o
+# Build artifacts
+build/
+
+# Model files (keep directory structure but ignore trained models)
+*.model

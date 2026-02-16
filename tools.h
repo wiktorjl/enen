@@ -4,8 +4,8 @@
 #include "nn.h"
 
 void print_net(const Net *net, int verbose);
-double randinit();
-double xavier_init(int fan_in, int fan_out);
+double random_uniform_init();  // Random initialization in range [-1, 1]
+double xavier_init(int fan_in, int fan_out);  // Xavier/Glorot initialization
 double sigmoid(double input);
 double sigmoid_derivative(double sigmoid_output);
 

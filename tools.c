@@ -48,10 +48,31 @@ void print_net(const Net *net, int verbose) {
     }
 }
 
-double randinit() {
+/*
+ * random_uniform_init() - Random weight initialization
+ *
+ * Returns a random value uniformly distributed in range [-1, 1].
+ * Simple initialization strategy, but Xavier initialization is often better.
+ */
+double random_uniform_init() {
     return 2.0 * ((double)rand() / (double)RAND_MAX) - 1.0;
 }
 
+/*
+ * xavier_init() - Xavier/Glorot weight initialization
+ *
+ * Initializes weights in range [-limit, limit] where:
+ *   limit = sqrt(6 / (fan_in + fan_out))
+ *
+ * This helps prevent vanishing/exploding gradients by keeping
+ * variance consistent across layers during forward/backward passes.
+ *
+ * Parameters:
+ *   fan_in  - Number of input neurons to this layer
+ *   fan_out - Number of output neurons from this layer
+ *
+ * Reference: Glorot & Bengio, 2010
+ */
 double xavier_init(int fan_in, int fan_out) {
     double limit = sqrt(6.0 / (fan_in + fan_out));
     return limit * (2.0 * ((double)rand() / (double)RAND_MAX) - 1.0);

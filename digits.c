@@ -23,8 +23,8 @@ void print_help(const char *program_name) {
     printf("  - Train new network\n");
     printf("  - Save trained model to digits.model\n\n");
     printf("Examples:\n");
-    printf("  %s                          # Train and save new model\n", program_name);
-    printf("  %s --load digits.model      # Load and test existing model\n", program_name);
+    printf("  %s                                # Train and save new model\n", program_name);
+    printf("  %s --load models/digits.model     # Load and test existing model\n", program_name);
 }
 
 int main(int argc, char *argv[]) {
@@ -121,8 +121,8 @@ int main(int argc, char *argv[]) {
         test_nn_multiclass(inputs, expected, num_samples, net);
 
         // Save the model
-        printf("\nSaving model to digits.model...\n");
-        if (save_net(net, "digits.model") == 0) {
+        printf("\nSaving model to models/digits.model...\n");
+        if (save_net(net, "models/digits.model") == 0) {
             printf("Model saved successfully\n");
         } else {
             fprintf(stderr, "Failed to save model\n");

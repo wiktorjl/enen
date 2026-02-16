@@ -1,3 +1,26 @@
+/*
+ * nn.c - Neural Network Implementation
+ *
+ * This file implements a fully-connected feedforward neural network with
+ * backpropagation learning. The network supports arbitrary architectures
+ * (any number of layers and neurons per layer) configured via config files.
+ *
+ * Key Features:
+ * - Dynamic architecture (configured at runtime)
+ * - Xavier weight initialization for better convergence
+ * - Stochastic gradient descent with shuffling
+ * - OpenMP parallelization for multi-core systems
+ * - Model persistence (save/load trained networks)
+ * - Multi-class classification support
+ *
+ * Algorithm:
+ * 1. Forward propagation: Compute network output for given input
+ * 2. Backward propagation: Compute gradients using chain rule
+ * 3. Weight update: Adjust weights to minimize error
+ *
+ * Educational Implementation - Optimized for clarity and understanding.
+ */
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +34,29 @@
 #include "nn.h"
 #include "tools.h"
 
+// OpenMP parallelization threshold
+// For small layers, thread overhead exceeds benefit
+// XOR (2-2-2-1) won't parallelize, but digits (64-128-64-10) will
+#define MIN_SIZE_FOR_PARALLEL 100
+
+/*
+ * create_net() - Create and initialize a neural network
+ *
+ * Allocates memory for all network structures (weights, biases, activations, deltas)
+ * and initializes weights using Xavier initialization for better convergence.
+ *
+ * Parameters:
+ *   config - Network configuration (layer sizes, learning rate, etc.)
+ *
+ * Returns:
+ *   Pointer to initialized network, or NULL on allocation failure
+ *
+ * Memory Layout:
+ *   - weights[layer][i*next_size + j]: Weight from neuron i to neuron j
+ *   - biases[layer][j]: Bias for neuron j in next layer
+ *   - activations[layer][i]: Output of neuron i (cached during forward pass)
+ *   - deltas[layer][i]: Error gradient for neuron i (used in backprop)
+ */
 Net* create_net(const Config *config) {
     Net *net = malloc(sizeof(Net));
     if (!net) {
@@ -30,10 +76,14 @@ Net* create_net(const Config *config) {
     net->weights = malloc(sizeof(double*) * (net->num_layers - 1));
     net->biases = malloc(sizeof(double*) * (net->num_layers - 1));
     net->activations = malloc(sizeof(double*) * net->num_layers);
+    net->deltas = malloc(sizeof(double*) * net->num_layers);
 
     for (int layer = 0; layer < net->num_layers; layer++) {
         net->activations[layer] = malloc(sizeof(double) * net->layer_sizes[layer]);
         memset(net->activations[layer], 0, sizeof(double) * net->layer_sizes[layer]);
+
+        net->deltas[layer] = malloc(sizeof(double) * net->layer_sizes[layer]);
+        memset(net->deltas[layer], 0, sizeof(double) * net->layer_sizes[layer]);
     }
 
     for (int layer = 0; layer < net->num_layers - 1; layer++) {
@@ -43,11 +93,14 @@ Net* create_net(const Config *config) {
         net->weights[layer] = malloc(sizeof(double) * current_size * next_size);
         net->biases[layer] = malloc(sizeof(double) * next_size);
 
+        // Use Xavier initialization for better weight initialization
+        // Xavier helps prevent vanishing/exploding gradients in deep networks
         for (int i = 0; i < current_size * next_size; i++) {
-            net->weights[layer][i] = randinit();
+            net->weights[layer][i] = xavier_init(current_size, next_size);
         }
         for (int i = 0; i < next_size; i++) {
-            net->biases[layer][i] = randinit();
+            // Biases initialized to small random values
+            net->biases[layer][i] = random_uniform_init() * 0.01;
         }
     }
 
@@ -59,8 +112,10 @@ void free_net(Net *net) {
 
     for (int layer = 0; layer < net->num_layers; layer++) {
         free(net->activations[layer]);
+        free(net->deltas[layer]);
     }
     free(net->activations);
+    free(net->deltas);
 
     for (int layer = 0; layer < net->num_layers - 1; layer++) {
         free(net->weights[layer]);
@@ -72,14 +127,34 @@ void free_net(Net *net) {
     free(net);
 }
 
+/*
+ * forward_pass() - Compute network output (prediction) for given input
+ *
+ * Propagates input through the network layer by layer:
+ * 1. Copy input to first layer activations
+ * 2. For each layer transition:
+ *    a. Compute weighted sum: sum = Σ(activation[i] * weight[i→j]) + bias[j]
+ *    b. Apply sigmoid activation: activation[j] = 1 / (1 + e^(-sum))
+ * 3. Final layer contains the network's output/prediction
+ *
+ * Parameters:
+ *   inputs - Input vector (length = layer_sizes[0])
+ *   net    - Neural network structure (activations will be updated)
+ *
+ * Result:
+ *   net->activations[num_layers-1] contains the network's output
+ */
 void forward_pass(const double *inputs, Net *net) {
+    // Copy input values into first layer (input layer just holds the data)
     memcpy(net->activations[0], inputs, sizeof(double) * net->layer_sizes[0]);
 
+    // Propagate through each layer
     for (int layer = 0; layer < net->num_layers - 1; layer++) {
         int current_size = net->layer_sizes[layer];
         int next_size = net->layer_sizes[layer + 1];
 
-        #pragma omp parallel for schedule(static)
+        // Only use OpenMP for larger layers (avoids thread overhead on small networks)
+        #pragma omp parallel for schedule(static) if(next_size > MIN_SIZE_FOR_PARALLEL)
         for (int j = 0; j < next_size; j++) {
             double sum = net->biases[layer][j];
             for (int i = 0; i < current_size; i++) {
@@ -90,64 +165,120 @@ void forward_pass(const double *inputs, Net *net) {
     }
 }
 
+/*
+ * backward_pass() - Backpropagation: Compute gradients and update weights
+ *
+ * Implements the backpropagation algorithm to train the network:
+ *
+ * Phase 1 - Output Error:
+ *   For each output neuron:
+ *     error = expected - actual
+ *     delta = error * sigmoid'(activation)
+ *
+ * Phase 2 - Hidden Layer Error (chain rule):
+ *   For each hidden layer (backward):
+ *     For each neuron:
+ *       error = Σ(delta[next] * weight[current→next])
+ *       delta = error * sigmoid'(activation)
+ *
+ * Phase 3 - Weight Update (gradient descent):
+ *   For each weight:
+ *     weight += learning_rate * delta[next] * activation[current]
+ *   For each bias:
+ *     bias += learning_rate * delta
+ *
+ * Parameters:
+ *   inputs        - Input vector (not used in this implementation)
+ *   expected      - Target output vector
+ *   net           - Neural network (weights/biases will be updated)
+ *   learning_rate - Step size for gradient descent (typically 0.1-0.5)
+ */
 void backward_pass(const double *inputs, const double *expected, Net *net, double learning_rate) {
     int num_layers = net->num_layers;
+    double **deltas = net->deltas;  // Error gradients (pre-allocated)
 
-    double **deltas = malloc(sizeof(double*) * num_layers);
+    // Clear deltas from previous iteration
     for (int layer = 0; layer < num_layers; layer++) {
-        deltas[layer] = calloc(net->layer_sizes[layer], sizeof(double));
+        memset(deltas[layer], 0, sizeof(double) * net->layer_sizes[layer]);
     }
 
+    // Phase 1: Compute output layer error
     int output_layer = num_layers - 1;
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < net->layer_sizes[output_layer]; i++) {
+    int output_size = net->layer_sizes[output_layer];
+    #pragma omp parallel for schedule(static) if(output_size > MIN_SIZE_FOR_PARALLEL)
+    for (int i = 0; i < output_size; i++) {
         double error = expected[i] - net->activations[output_layer][i];
+        // delta = error * sigmoid'(activation)
+        // The sigmoid derivative tells us how sensitive this neuron is to changes
         deltas[output_layer][i] = error * sigmoid_derivative(net->activations[output_layer][i]);
     }
 
+    // Phase 2: Propagate error backward through hidden layers
     for (int layer = num_layers - 2; layer >= 0; layer--) {
         int current_size = net->layer_sizes[layer];
         int next_size = net->layer_sizes[layer + 1];
 
-        #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static) if(current_size > MIN_SIZE_FOR_PARALLEL)
         for (int i = 0; i < current_size; i++) {
             double error = 0.0;
+            // Accumulate weighted error from next layer (chain rule)
             for (int j = 0; j < next_size; j++) {
                 error += deltas[layer + 1][j] * net->weights[layer][i * next_size + j];
             }
+            // Multiply by derivative to get gradient for this neuron
             deltas[layer][i] = error * sigmoid_derivative(net->activations[layer][i]);
         }
     }
 
+    // Phase 3: Update weights and biases using computed gradients
     for (int layer = 0; layer < num_layers - 1; layer++) {
         int current_size = net->layer_sizes[layer];
         int next_size = net->layer_sizes[layer + 1];
 
-        #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static) if(current_size > MIN_SIZE_FOR_PARALLEL)
         for (int i = 0; i < current_size; i++) {
             for (int j = 0; j < next_size; j++) {
-                net->weights[layer][i * next_size + j] += learning_rate * deltas[layer + 1][j] * net->activations[layer][i];
+                // Update rule: weight += learning_rate * gradient * input
+                // If delta is positive, increase weight; if negative, decrease
+                // If activation is high, this neuron strongly influences the output
+                net->weights[layer][i * next_size + j] +=
+                    learning_rate * deltas[layer + 1][j] * net->activations[layer][i];
             }
         }
 
-        #pragma omp parallel for schedule(static)
+        // Update biases (simpler: no activation multiplication needed)
+        #pragma omp parallel for schedule(static) if(next_size > MIN_SIZE_FOR_PARALLEL)
         for (int j = 0; j < next_size; j++) {
             net->biases[layer][j] += learning_rate * deltas[layer + 1][j];
         }
     }
-
-    for (int layer = 0; layer < num_layers; layer++) {
-        free(deltas[layer]);
-    }
-    free(deltas);
+    // Note: deltas are pre-allocated in Net struct, so no need to free
 }
 
+/*
+ * train_nn() - Train network using stochastic gradient descent
+ *
+ * Implements online learning with shuffling:
+ * - Each epoch processes all training samples in random order
+ * - Shuffling prevents the network from memorizing sequence patterns
+ * - Weights are updated after each sample (stochastic gradient descent)
+ *
+ * Parameters:
+ *   inputs        - Array of input vectors [num_samples][input_size]
+ *   expected      - Array of expected outputs [num_samples]
+ *   num_samples   - Number of training examples
+ *   net           - Neural network to train
+ *   rounds        - Number of epochs (full passes through dataset)
+ *   learning_rate - Step size for weight updates
+ */
 void train_nn(double **inputs, double *expected, int num_samples, Net *net, int rounds, double learning_rate) {
     int *order = NULL;
 
     for (int round = 0; round < rounds; round++) {
+        // Shuffle training order each epoch
         order = init_order_array(num_samples);
 
+        // Train on each sample in random order
         for(int i = 0; i < num_samples; ++i) {
             forward_pass(inputs[order[i]], net);
             backward_pass(inputs[order[i]], &expected[order[i]], net, learning_rate);
@@ -278,10 +409,14 @@ Net* load_net(const char *filename) {
     net->weights = malloc(sizeof(double*) * (net->num_layers - 1));
     net->biases = malloc(sizeof(double*) * (net->num_layers - 1));
     net->activations = malloc(sizeof(double*) * net->num_layers);
+    net->deltas = malloc(sizeof(double*) * net->num_layers);
 
     for (int layer = 0; layer < net->num_layers; layer++) {
         net->activations[layer] = malloc(sizeof(double) * net->layer_sizes[layer]);
         memset(net->activations[layer], 0, sizeof(double) * net->layer_sizes[layer]);
+
+        net->deltas[layer] = malloc(sizeof(double) * net->layer_sizes[layer]);
+        memset(net->deltas[layer], 0, sizeof(double) * net->layer_sizes[layer]);
     }
 
     // Read weights

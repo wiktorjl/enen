@@ -10,6 +10,7 @@ typedef struct NetStruct {
     double **weights;
     double **biases;
     double **activations;
+    double **deltas;        // Error gradients for backpropagation (pre-allocated)
 } Net;
 
 Net* create_net(const Config *config);
