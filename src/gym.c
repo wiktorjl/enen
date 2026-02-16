@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
         printf("Model loaded successfully\n\n");
     }
 
-    Config* config = load_config("xornet.conf");
+    Config* config = load_config("conf/xornet.conf");
     if(!config) {
         fprintf(stderr, "Failed to load config file.\n");
         if (base_net) free_net(base_net);

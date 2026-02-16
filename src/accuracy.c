@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    Config* config = load_config("xornet.conf");
+    Config* config = load_config("conf/xornet.conf");
     if(!config) {
         fprintf(stderr, "Failed to load config file.\n");
         return 1;

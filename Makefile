@@ -1,9 +1,10 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -g -Wall -fopenmp
+CFLAGS = -g -Wall -fopenmp -Isrc
 LDFLAGS = -lm -fopenmp
 
 # Directories
+SRC_DIR = src
 BUILD_DIR = build
 MODELS_DIR = models
 
@@ -27,33 +28,33 @@ accuracy: $(BUILD_DIR)/accuracy.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD
 digits: $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/digits $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
 
-generate_digits: generate_digits.c
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/generate_digits generate_digits.c $(LDFLAGS)
+generate_digits: $(SRC_DIR)/generate_digits.c
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/generate_digits $(SRC_DIR)/generate_digits.c $(LDFLAGS)
 
 config: $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/config $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o $(LDFLAGS)
 
 # Object file rules
-$(BUILD_DIR)/xor.o: xor.c nn.h
-	$(CC) $(CFLAGS) -c xor.c -o $(BUILD_DIR)/xor.o
+$(BUILD_DIR)/xor.o: $(SRC_DIR)/xor.c $(SRC_DIR)/nn.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/xor.c -o $(BUILD_DIR)/xor.o
 
-$(BUILD_DIR)/gym.o: gym.c nn.h
-	$(CC) $(CFLAGS) -c gym.c -o $(BUILD_DIR)/gym.o
+$(BUILD_DIR)/gym.o: $(SRC_DIR)/gym.c $(SRC_DIR)/nn.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/gym.c -o $(BUILD_DIR)/gym.o
 
-$(BUILD_DIR)/accuracy.o: accuracy.c nn.h
-	$(CC) $(CFLAGS) -c accuracy.c -o $(BUILD_DIR)/accuracy.o
+$(BUILD_DIR)/accuracy.o: $(SRC_DIR)/accuracy.c $(SRC_DIR)/nn.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/accuracy.c -o $(BUILD_DIR)/accuracy.o
 
-$(BUILD_DIR)/digits.o: digits.c nn.h config.h tools.h
-	$(CC) $(CFLAGS) -c digits.c -o $(BUILD_DIR)/digits.o
+$(BUILD_DIR)/digits.o: $(SRC_DIR)/digits.c $(SRC_DIR)/nn.h $(SRC_DIR)/config.h $(SRC_DIR)/tools.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/digits.c -o $(BUILD_DIR)/digits.o
 
-$(BUILD_DIR)/nn.o: nn.c nn.h tools.h
-	$(CC) $(CFLAGS) -c nn.c -o $(BUILD_DIR)/nn.o
+$(BUILD_DIR)/nn.o: $(SRC_DIR)/nn.c $(SRC_DIR)/nn.h $(SRC_DIR)/tools.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/nn.c -o $(BUILD_DIR)/nn.o
 
-$(BUILD_DIR)/tools.o: tools.c tools.h
-	$(CC) $(CFLAGS) -c tools.c -o $(BUILD_DIR)/tools.o
+$(BUILD_DIR)/tools.o: $(SRC_DIR)/tools.c $(SRC_DIR)/tools.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/tools.c -o $(BUILD_DIR)/tools.o
 
-$(BUILD_DIR)/config.o: config.c config.h tools.h
-	$(CC) $(CFLAGS) -c config.c -o $(BUILD_DIR)/config.o
+$(BUILD_DIR)/config.o: $(SRC_DIR)/config.c $(SRC_DIR)/config.h $(SRC_DIR)/tools.h
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/config.c -o $(BUILD_DIR)/config.o
 
 
 # Clean rule

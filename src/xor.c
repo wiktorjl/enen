@@ -7,7 +7,7 @@
 #include "tools.h"
 
 int main() {
-    Config* config = load_config("xornet.conf");
+    Config* config = load_config("conf/xornet.conf");
     if(!config) {
         fprintf(stderr, "Failed to load config file.\n");
         return 1;

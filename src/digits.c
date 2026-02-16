@@ -18,7 +18,7 @@ void print_help(const char *program_name) {
     printf("  --load MODEL    Load pre-trained model from file and test\n");
     printf("  --help          Display this help message\n\n");
     printf("Default behavior (no options):\n");
-    printf("  - Load configuration from digits.conf\n");
+    printf("  - Load configuration from conf/digits.conf\n");
     printf("  - Load dataset from digits_dataset.csv\n");
     printf("  - Train new network\n");
     printf("  - Save trained model to digits.model\n\n");
@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
         print_net(net, 0);
 
         // Still need to load config for dataset path
-        config = load_config("digits.conf");
+        config = load_config("conf/digits.conf");
         if (!config) {
             fprintf(stderr, "Failed to load config\n");
             free_net(net);
@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
         }
     } else {
         // Train new model
-        config = load_config("digits.conf");
+        config = load_config("conf/digits.conf");
         if (!config) {
             fprintf(stderr, "Failed to load config\n");
             return 1;

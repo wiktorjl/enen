@@ -36,20 +36,22 @@ All executables are placed in `build/`, and trained models are saved to `models/
 
 ```
 .
+├── src/                # Source code
+│   ├── nn.c/nn.h           # Core neural network implementation
+│   ├── config.c/config.h   # Configuration file parser
+│   ├── tools.c/tools.h     # Utilities and data loading
+│   ├── xor.c               # XOR training program
+│   ├── digits.c            # 8×8 digit recognition program
+│   ├── generate_digits.c   # Dataset generator for digits
+│   ├── gym.c               # Hyperparameter tuning tool
+│   └── accuracy.c          # Statistical analysis tool
+├── conf/               # Configuration files
+│   ├── xornet.conf         # XOR network configuration
+│   └── digits.conf         # Digit network configuration
 ├── build/              # Compiled executables and object files
 ├── models/             # Saved neural network models
 ├── docs/               # Documentation
 │   └── DIGITS.md       # In-depth neural network walkthrough
-├── nn.c/nn.h           # Core neural network implementation
-├── config.c/config.h   # Configuration file parser
-├── tools.c/tools.h     # Utilities and data loading
-├── xor.c               # XOR training program
-├── digits.c            # 8×8 digit recognition program
-├── generate_digits.c   # Dataset generator for digits
-├── gym.c               # Hyperparameter tuning tool
-├── accuracy.c          # Statistical analysis tool
-├── xornet.conf         # XOR network configuration
-├── digits.conf         # Digit network configuration
 └── Makefile            # Build system
 ```
 
@@ -218,7 +220,7 @@ dataset=xor_dataset.csv
 
 **Example configurations:**
 
-`xornet.conf`:
+`conf/xornet.conf`:
 ```
 input_size=2
 hidden_layers=3,4,3
@@ -228,7 +230,7 @@ epochs=10000
 dataset=xor_dataset.csv
 ```
 
-`digits.conf`:
+`conf/digits.conf`:
 ```
 input_size=64
 hidden_layers=128,64
