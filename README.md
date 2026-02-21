@@ -27,7 +27,7 @@ make generate_digits digits
 ### 2. Generate the dataset
 
 ```bash
-./generate_digits
+./build/generate_digits
 ```
 
 This creates `digits_dataset.csv` with 10 canonical `8x8` digit patterns.
@@ -35,7 +35,7 @@ This creates `digits_dataset.csv` with 10 canonical `8x8` digit patterns.
 ### 3. Train a model
 
 ```bash
-./digits
+./build/digits
 ```
 
 Default behavior:
@@ -48,7 +48,7 @@ Default behavior:
 ### 4. Load and test an existing model
 
 ```bash
-./digits --load digits.model
+./build/digits --load digits.model
 ```
 
 ## Configuration

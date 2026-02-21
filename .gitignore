@@ -1,1 +1,14 @@
+# Build artifacts
+build/
 *.o
+*.model
+compile_commands.json
+digits_dataset.csv
+
+# Legacy root-level binaries from older Makefile versions
+accuracy
+config
+digits
+generate_digits
+gym
+xor

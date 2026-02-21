@@ -3,51 +3,67 @@ CC = gcc
 CFLAGS = -g -Wall -fopenmp
 LDFLAGS = -lm -fopenmp
 
+BUILD_DIR = build
+PROGRAMS = xor gym accuracy digits generate_digits
+COMMON_OBJS = $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
+
+.PHONY: all clean xor gym accuracy digits generate_digits config
+
 # All executables
-all: xor gym accuracy digits generate_digits
+all: $(addprefix $(BUILD_DIR)/,$(PROGRAMS))
+
+# Convenience aliases (e.g. `make digits`)
+xor: $(BUILD_DIR)/xor
+gym: $(BUILD_DIR)/gym
+accuracy: $(BUILD_DIR)/accuracy
+digits: $(BUILD_DIR)/digits
+generate_digits: $(BUILD_DIR)/generate_digits
+config: $(BUILD_DIR)/config
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
 # Executable rules
-xor: xor.o nn.o tools.o config.o
-	$(CC) $(CFLAGS) -o xor xor.o nn.o tools.o config.o $(LDFLAGS)
+$(BUILD_DIR)/xor: $(BUILD_DIR)/xor.o $(COMMON_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-gym: gym.o nn.o tools.o config.o
-	$(CC) $(CFLAGS) -o gym gym.o nn.o tools.o config.o $(LDFLAGS)
+$(BUILD_DIR)/gym: $(BUILD_DIR)/gym.o $(COMMON_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-accuracy: accuracy.o nn.o tools.o config.o
-	$(CC) $(CFLAGS) -o accuracy accuracy.o nn.o tools.o config.o $(LDFLAGS)
+$(BUILD_DIR)/accuracy: $(BUILD_DIR)/accuracy.o $(COMMON_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-digits: digits.o nn.o tools.o config.o
-	$(CC) $(CFLAGS) -o digits digits.o nn.o tools.o config.o $(LDFLAGS)
+$(BUILD_DIR)/digits: $(BUILD_DIR)/digits.o $(COMMON_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-generate_digits: generate_digits.c
-	$(CC) $(CFLAGS) -o generate_digits generate_digits.c $(LDFLAGS)
+$(BUILD_DIR)/generate_digits: generate_digits.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-config: config.o tools.o
-	$(CC) $(CFLAGS) -o config config.o tools.o $(LDFLAGS)
+$(BUILD_DIR)/config: $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Object file rules
-xor.o: xor.c nn.h
-	$(CC) $(CFLAGS) -c xor.c
+$(BUILD_DIR)/xor.o: xor.c nn.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-gym.o: gym.c nn.h
-	$(CC) $(CFLAGS) -c gym.c
+$(BUILD_DIR)/gym.o: gym.c nn.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-accuracy.o: accuracy.c nn.h
-	$(CC) $(CFLAGS) -c accuracy.c
+$(BUILD_DIR)/accuracy.o: accuracy.c nn.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-digits.o: digits.c nn.h config.h tools.h
-	$(CC) $(CFLAGS) -c digits.c
+$(BUILD_DIR)/digits.o: digits.c nn.h config.h tools.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-nn.o: nn.c nn.h tools.h
-	$(CC) $(CFLAGS) -c nn.c
+$(BUILD_DIR)/nn.o: nn.c nn.h tools.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-tools.o: tools.c tools.h
-	$(CC) $(CFLAGS) -c tools.c
+$(BUILD_DIR)/tools.o: tools.c tools.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-config.o: config.c config.h tools.h
-	$(CC) $(CFLAGS) -c config.c
-
+$(BUILD_DIR)/config.o: config.c config.h tools.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Clean rule
 clean:
-	rm -f xor gym accuracy digits generate_digits config *.o *.model
+	rm -rf $(BUILD_DIR) xor gym accuracy digits generate_digits config *.o *.model
