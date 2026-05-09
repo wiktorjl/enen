@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include "config.h"
 #include "tools.h"
 
@@ -14,6 +15,67 @@ int validate_filename(const char * filename) {
     }
 
     return 1;
+}
+
+static int is_absolute_path(const char *path) {
+    return path && path[0] == '/';
+}
+
+static int has_path_separator(const char *path) {
+    return path && strchr(path, '/') != NULL;
+}
+
+static int get_executable_dir(char *out_dir, size_t out_dir_size) {
+    if (!out_dir || out_dir_size == 0) {
+        return 0;
+    }
+
+    ssize_t len = readlink("/proc/self/exe", out_dir, out_dir_size - 1);
+    if (len <= 0 || (size_t)len >= out_dir_size) {
+        return 0;
+    }
+
+    out_dir[len] = '\0';
+    char *last_slash = strrchr(out_dir, '/');
+    if (!last_slash) {
+        return 0;
+    }
+    *last_slash = '\0';
+    return 1;
+}
+
+static FILE *open_config_with_fallback(const char *filename, char *resolved_path, size_t resolved_path_size) {
+    FILE *f = fopen(filename, "r");
+    if (f) {
+        strncpy(resolved_path, filename, resolved_path_size - 1);
+        resolved_path[resolved_path_size - 1] = '\0';
+        return f;
+    }
+
+    // If a path was provided, don't try to reinterpret it.
+    if (has_path_separator(filename)) {
+        return NULL;
+    }
+
+    char exe_dir[PATH_MAX];
+    if (!get_executable_dir(exe_dir, sizeof(exe_dir))) {
+        return NULL;
+    }
+
+    char candidate[PATH_MAX];
+    int written = snprintf(candidate, sizeof(candidate), "%s/%s", exe_dir, filename);
+    if (written <= 0 || written >= (int)sizeof(candidate)) {
+        return NULL;
+    }
+
+    f = fopen(candidate, "r");
+    if (!f) {
+        return NULL;
+    }
+
+    strncpy(resolved_path, candidate, resolved_path_size - 1);
+    resolved_path[resolved_path_size - 1] = '\0';
+    return f;
 }
 
 Config* load_config(const char* filename) {
@@ -29,79 +91,95 @@ Config* load_config(const char* filename) {
     // Check if filename is non empty
     if(!validate_filename(filename)) {
         perror("Filename invalid.");
-        return NULL;
-    }
-    // printf("Filename is valid.\n");
-    
-    // Check if file exists and is readable
-    if(access(filename, R_OK) != 0) {
-        perror("File is not accessible");
+        free(config);
         return NULL;
     }
 
-    // Read into memory
-    FILE * f = fopen(filename, "r");
+    char config_path[PATH_MAX] = {0};
+    FILE * f = open_config_with_fallback(filename, config_path, sizeof(config_path));
 
     if (!f) {
         perror("Failed to open config file");
+        free(config);
         return NULL;
     } else {
         char line[1000];
-        char * res = NULL;
+        char config_dir[PATH_MAX] = ".";
+        char *last_slash = strrchr(config_path, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            strncpy(config_dir, config_path, sizeof(config_dir) - 1);
+            config_dir[sizeof(config_dir) - 1] = '\0';
+        }
 
-        
-        do {
-            res = fgets(line, 1000, f);
+        while (fgets(line, sizeof(line), f)) {
             char line_trimmed[1000];
-            trim_copy(line, line_trimmed, 1000);
+            trim_copy(line, line_trimmed, sizeof(line_trimmed));
 
-            if(res) {
-                // printf("Line: %s\n", line_trimmed);
-                char * key = strtok(line_trimmed, "=");
-                char * val = strtok(NULL, "=");
-                // printf("Key=%s, Val=%s\n", key, val);
+            if (line_trimmed[0] == '\0' || line_trimmed[0] == '#') {
+                continue;
+            }
 
-                if(strcmp(key, "input_size") == 0) {
-                    // printf("Storing config input_size=%s\n", val);
-                    config->input_size = atoi(val);
-                } else if(strcmp(key, "hidden_layers") == 0) {
-                    // printf("Storing config hidden_layers=%s\n", val);
-                    // Parse comma-separated sizes
-                    char * layer_size_str = strtok(val, ",");
-                    int layer_count = 0;
-                    int * layer_sizes = NULL;
-                    while(layer_size_str) {
-                        layer_sizes = realloc(layer_sizes, sizeof(int) * (layer_count + 1));
-                        layer_sizes[layer_count] = atoi(layer_size_str);
-                        layer_count++;
-                        layer_size_str = strtok(NULL, ",");
-                    }
-                    config->num_hidden_layers = layer_count;
-                    config->hidden_layer_sizes = layer_sizes;
-                     
+            char *key_raw = strtok(line_trimmed, "=");
+            char *val_raw = strtok(NULL, "=");
+            if (!key_raw || !val_raw) {
+                continue;
+            }
 
-                } else if(strcmp(key, "output_size") == 0) {
-                    // printf("Storing config output_size=%s\n", val);
-                    config->output_size = atoi(val);
-                } else if(strcmp(key, "learning_rate") == 0) {
-                    // printf("Storing config learning_rate=%s\n", val);
-                    config->learning_rate = atof(val);
-                } else if(strcmp(key, "epochs") == 0) {
-                    // printf("Storing config epochs=%s\n", val);
-                    config->epochs = atoi(val);
-                } else if(strcmp(key, "dataset") == 0) {
-                    // printf("Storing config dataset=%s\n", val);
-                    if(val) {
-                        // Copy dataset path safely into fixed-size buffer
-                        strncpy(config->dataset_path, val, sizeof(config->dataset_path) - 1);
+            char key[1000];
+            char val[1000];
+            trim_copy(key_raw, key, sizeof(key));
+            trim_copy(val_raw, val, sizeof(val));
+
+            if(strcmp(key, "input_size") == 0) {
+                config->input_size = atoi(val);
+            } else if(strcmp(key, "hidden_layers") == 0) {
+                // Parse comma-separated sizes
+                char layers_buf[1000];
+                strncpy(layers_buf, val, sizeof(layers_buf) - 1);
+                layers_buf[sizeof(layers_buf) - 1] = '\0';
+
+                char *layer_size_str = strtok(layers_buf, ",");
+                int layer_count = 0;
+                int *layer_sizes = NULL;
+
+                while (layer_size_str) {
+                    char layer_size_trimmed[1000];
+                    trim_copy(layer_size_str, layer_size_trimmed, sizeof(layer_size_trimmed));
+                    layer_sizes = realloc(layer_sizes, sizeof(int) * (layer_count + 1));
+                    layer_sizes[layer_count] = atoi(layer_size_trimmed);
+                    layer_count++;
+                    layer_size_str = strtok(NULL, ",");
+                }
+
+                free(config->hidden_layer_sizes);
+                config->num_hidden_layers = layer_count;
+                config->hidden_layer_sizes = layer_sizes;
+            } else if(strcmp(key, "output_size") == 0) {
+                config->output_size = atoi(val);
+            } else if(strcmp(key, "learning_rate") == 0) {
+                config->learning_rate = atof(val);
+            } else if(strcmp(key, "epochs") == 0) {
+                config->epochs = atoi(val);
+            } else if(strcmp(key, "dataset") == 0) {
+                if (!is_absolute_path(val)) {
+                    char dataset_resolved[PATH_MAX];
+                    int written = snprintf(dataset_resolved, sizeof(dataset_resolved), "%s/%s", config_dir, val);
+                    if (written > 0 && written < (int)sizeof(dataset_resolved)) {
+                        strncpy(config->dataset_path, dataset_resolved, sizeof(config->dataset_path) - 1);
                         config->dataset_path[sizeof(config->dataset_path) - 1] = '\0';
+                    } else {
+                        config->dataset_path[0] = '\0';
                     }
                 } else {
-                    printf("Unknown key: %s\n", key);
-                    printf("Storing config unknown_key=%s\n", val);
+                    strncpy(config->dataset_path, val, sizeof(config->dataset_path) - 1);
+                    config->dataset_path[sizeof(config->dataset_path) - 1] = '\0';
                 }
+            } else {
+                printf("Unknown key: %s\n", key);
+                printf("Storing config unknown_key=%s\n", val);
             }
-        } while(res);
+        }
     }
     fclose(f);
     return config;
