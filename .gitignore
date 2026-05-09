@@ -5,6 +5,10 @@ build/
 compile_commands.json
 digits_dataset.csv
 
+# Editor / tooling caches
+.cache/
+.vscode/
+
 # Legacy root-level binaries from older Makefile versions
 accuracy
 config
