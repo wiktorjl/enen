@@ -1,52 +1,36 @@
 # GEMINI.md
 
-This file provides guidance to Gemini when working with code in this repository.
+Guidance for working with this repository.
 
-## Project Overview
+## Project overview
 
-This is a simple neural network implementation in C that learns the XOR function. The network uses backpropagation with a 2-2-1 architecture (2 input neurons, 2 hidden neurons, 1 output neuron).
+The project is an educational handwritten-digit classifier written in C. The
+default network accepts 64 normalized pixels, uses two configurable hidden
+layers, and produces ten class activations.
 
-## Architecture
+## Code organization
 
-The codebase is organized into three main files:
+- `src/digits.c`: main training and evaluation workflow
+- `src/gym.c`: hyperparameter experiments using train/test splits
+- `src/accuracy.c`: repeated training runs and accuracy statistics
+- `src/nn.c` / `src/nn.h`: neural-network implementation and model persistence
+- `src/tools.c` / `src/tools.h`: one-hot dataset loading and helpers
+- `src/config.c` / `src/config.h`: configuration parsing
+- `conf/digits.conf`: active network and dataset configuration
 
-- **xor.c**: Contains the main program, training loop, and neural network forward/backward pass logic
-- **tools.h**: Defines the `Net` struct and function declarations for network utilities
-- **tools.c**: Implements utility functions for network initialization, sigmoid activation, data loading, and array shuffling
-- **xor_dataset.csv**: Training data in format `input1,input2,expected_output`
+## Build and run
 
-### Key Components
-
-**Net struct** (tools.h:6-15): The core neural network structure containing:
-- `weights_ih[2][2]`: Input-to-hidden layer weights
-- `weights_ho[2][1]`: Hidden-to-output layer weights
-- `bias_hidden[2]`: Hidden layer biases
-- `bias_output[1]`: Output layer bias
-- `output_hidden[2]`: Hidden layer activations (cached during forward pass)
-- `output_final[1]`: Final output value
-
-**Training process** (xor.c:55-74):
-- Runs for `ROUNDS` (10000) iterations
-- Shuffles input order each round to prevent bias
-- Performs forward pass followed by backward pass for gradient updates
-- Uses learning rate of 0.5 (hardcoded in backward_pass)
-
-## Building and Running
-
-Compile the program:
 ```bash
-gcc -o xor xor.c tools.c -lm
+make all
+./build/digits
+./build/digits --load models/digits.model
 ```
 
-Run the trained network:
-```bash
-./xor
-```
+## Important conventions
 
-The program will train on XOR data and print the learned outputs for all 4 input combinations.
-
-## Development Notes
-
-- The network uses sigmoid activation: `sigmoid(x) = 1/(1 + e^(-x))`
-- Weights are initialized randomly in range [-1, 1] via `randinit()`
-- Training data is loaded from CSV file via `init_xor_data()`
+- Dataset rows contain 64 pixel values followed by a digit label.
+- Labels are represented as ten-element one-hot vectors.
+- Training uses the configured training split; evaluation uses the test split.
+- Predictions are the argmax across all ten output activations.
+- Dynamically allocated networks, configurations, and datasets must be released
+  with their corresponding cleanup functions.

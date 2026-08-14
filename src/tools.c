@@ -93,55 +93,6 @@ void shuffle_array(int n, double *arr) {
     }
 }
 
-void load_dataset(const char *filename, double ***inputs_out, double **expected_out, int *num_samples_out, int input_size) {
-    FILE *f = fopen(filename, "r");
-    if (!f) {
-        perror("Failed to open dataset file");
-        exit(1);
-    }
-
-    int capacity = 10;
-    int count = 0;
-    double **inputs = malloc(sizeof(double*) * capacity);
-    double *expected = malloc(sizeof(double) * capacity);
-
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        if (count >= capacity) {
-            capacity *= 2;
-            inputs = realloc(inputs, sizeof(double*) * capacity);
-            expected = realloc(expected, sizeof(double) * capacity);
-        }
-
-        inputs[count] = malloc(sizeof(double) * input_size);
-        char *token = strtok(line, ",");
-        int col = 0;
-        while (token && col < input_size) {
-            inputs[count][col] = atof(token);
-            token = strtok(NULL, ",");
-            col++;
-        }
-        if (token) {
-            expected[count] = atof(token);
-        }
-        count++;
-    }
-
-    fclose(f);
-
-    *inputs_out = inputs;
-    *expected_out = expected;
-    *num_samples_out = count;
-}
-
-void free_dataset(double **inputs, double *expected, int num_samples) {
-    for (int i = 0; i < num_samples; i++) {
-        free(inputs[i]);
-    }
-    free(inputs);
-    free(expected);
-}
-
 int *init_order_array(int n) {
     int *arr = (int *)malloc(n * sizeof(int));
     if (!arr) return NULL;

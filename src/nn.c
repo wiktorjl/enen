@@ -36,7 +36,7 @@
 
 // OpenMP parallelization threshold
 // For small layers, thread overhead exceeds benefit
-// XOR (2-2-2-1) won't parallelize, but digits (64-128-64-10) will
+// Small layers stay serial; larger digit-network layers can run in parallel.
 #define MIN_SIZE_FOR_PARALLEL 100
 
 /*
@@ -253,64 +253,6 @@ void backward_pass(const double *inputs, const double *expected, Net *net, doubl
         }
     }
     // Note: deltas are pre-allocated in Net struct, so no need to free
-}
-
-/*
- * train_nn() - Train network using stochastic gradient descent
- *
- * Implements online learning with shuffling:
- * - Each epoch processes all training samples in random order
- * - Shuffling prevents the network from memorizing sequence patterns
- * - Weights are updated after each sample (stochastic gradient descent)
- *
- * Parameters:
- *   inputs        - Array of input vectors [num_samples][input_size]
- *   expected      - Array of expected outputs [num_samples]
- *   num_samples   - Number of training examples
- *   net           - Neural network to train
- *   rounds        - Number of epochs (full passes through dataset)
- *   learning_rate - Step size for weight updates
- */
-void train_nn(double **inputs, double *expected, int num_samples, Net *net, int rounds, double learning_rate) {
-    int *order = NULL;
-
-    for (int round = 0; round < rounds; round++) {
-        // Shuffle training order each epoch
-        order = init_order_array(num_samples);
-
-        // Train on each sample in random order
-        for(int i = 0; i < num_samples; ++i) {
-            forward_pass(inputs[order[i]], net);
-            backward_pass(inputs[order[i]], &expected[order[i]], net, learning_rate);
-        }
-
-        free(order);
-    }
-}
-
-void test_nn(double **inputs, double *expected, int num_samples, Net *net) {
-    printf("\n=== What did we learn? ===\n");
-    for(int i = 0; i < num_samples; i++) {
-        forward_pass(inputs[i], net);
-        int output_layer = net->num_layers - 1;
-        printf("[");
-        for (int j = 0; j < net->layer_sizes[0]; j++) {
-            printf("%.0f", inputs[i][j]);
-            if (j < net->layer_sizes[0] - 1) printf(",");
-        }
-        printf("] → %.3f (want %.0f)\n",
-            net->activations[output_layer][0], expected[i]);
-    }
-}
-
-double test_nn_and_get_mse(double **inputs, double *expected, int num_samples, Net *net) {
-    double mse = 0.0;
-    for(int i = 0; i < num_samples; i++) {
-        forward_pass(inputs[i], net);
-        int output_layer = net->num_layers - 1;
-        mse += pow(expected[i] - net->activations[output_layer][0], 2);
-    }
-    return mse / num_samples;
 }
 
 int save_net(const Net *net, const char *filename) {

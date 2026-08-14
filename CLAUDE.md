@@ -1,87 +1,43 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for working with this repository.
 
-## Project Overview
+## Project overview
 
-This is a configurable neural network implementation in C that can learn various functions including XOR. The network uses backpropagation with a fully configurable multi-layer architecture.
+This is a C implementation of a configurable 8×8 handwritten-digit classifier.
+It uses a fully connected network with sigmoid activations, one-hot targets,
+backpropagation, stochastic gradient descent, and OpenMP.
 
-## Architecture
+## Main components
 
-The codebase is organized into several files:
+- `src/digits.c`: train, evaluate, save, and load the digit model
+- `src/gym.c`: compare learning-rate and epoch combinations
+- `src/accuracy.c`: repeat training and summarize test accuracy
+- `src/nn.c` / `src/nn.h`: network lifecycle, propagation, training, and persistence
+- `src/config.c` / `src/config.h`: configuration parsing
+- `src/tools.c` / `src/tools.h`: multiclass CSV loading and numerical helpers
+- `conf/digits.conf`: architecture, training parameters, and dataset paths
 
-- **xor.c**: Main program that trains and tests the network on XOR
-- **gym.c**: Hyperparameter tuning tool that tests different learning rates and training rounds
-- **accuracy.c**: Statistical analysis tool that runs multiple training sessions and reports accuracy metrics
-- **nn.h/nn.c**: Core neural network implementation with forward/backward passes
-- **config.h/config.c**: Configuration file parser for network architecture and training parameters
-- **tools.h/tools.c**: Utility functions for dataset loading, activation functions, and network visualization
-- **xornet.conf**: Configuration file specifying network architecture and training parameters
-- **xor_dataset.csv**: Training data in CSV format
+## Build and run
 
-### Key Components
-
-**Config struct** (config.h:4-12): Configuration parameters loaded from file:
-- `input_size`: Number of input neurons
-- `output_size`: Number of output neurons
-- `num_hidden_layers`: Number of hidden layers
-- `hidden_layer_sizes`: Array of hidden layer sizes
-- `learning_rate`: Training learning rate
-- `epochs`: Number of training iterations
-- `dataset_path`: Path to CSV dataset
-
-**Net struct** (nn.h:6-12): The dynamic neural network structure:
-- `num_layers`: Total number of layers (input + hidden + output)
-- `layer_sizes`: Array of neuron counts for each layer
-- `weights`: Dynamically allocated weight matrices between layers
-- `biases`: Bias values for each layer
-- `activations`: Cached activation values during forward pass
-
-**Training process** (nn.c:135-148):
-- Configurable number of epochs from config file
-- Shuffles input order each round to prevent bias
-- Performs forward pass through all layers
-- Backpropagates error from output to input
-- Configurable learning rate from config file
-
-## Building and Running
-
-Build all programs:
 ```bash
-make
+make all
+./build/digits
+./build/digits --load models/digits.model
+./build/gym
+./build/accuracy 10
 ```
 
-Train and test on XOR:
-```bash
-./xor
-```
+## Data and evaluation
 
-Run hyperparameter tuning:
-```bash
-./gym
-```
+CSV rows contain 64 normalized pixels followed by an integer label from 0 to 9.
+`load_dataset_multiclass()` converts labels to one-hot vectors. Training must use
+`train_dataset_path`; metrics must use `test_dataset_path`. Predictions use the
+argmax across all output neurons.
 
-Run statistical accuracy analysis:
-```bash
-./accuracy 100  # Run 100 training sessions
-```
+## Development notes
 
-## Configuration File Format
-
-The `xornet.conf` file uses a simple key=value format:
-```
-input_size=2
-hidden_layers=3,4,3
-output_size=1
-learning_rate=0.5
-epochs=10000
-dataset=xor_dataset.csv
-```
-
-## Development Notes
-
-- The network uses sigmoid activation: `sigmoid(x) = 1/(1 + e^(-x))`
-- Weights are initialized randomly in range [-1, 1] via `randinit()`
-- Network architecture is fully dynamic and configurable
-- Memory is properly managed with `free_net()`, `free_config()`, and `free_dataset()`
-- Dataset format is CSV: input values followed by expected output
+- Preserve the dynamic architecture represented by `Config` and `Net`.
+- Keep model and dataset dimensions consistent with `conf/digits.conf`.
+- Use `free_dataset_multiclass()`, `free_net()`, and `free_config()` for cleanup.
+- Build with `make` so GCC warnings and OpenMP flags match the project.
