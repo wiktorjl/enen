@@ -16,14 +16,19 @@ void print_help(const char *program_name) {
     printf("Default behavior (no options):\n");
     printf("  - Create fresh networks for each hyperparameter combination\n");
     printf("  - Test learning rates: 0.01, 0.1, 0.5, 1.0\n");
-    printf("  - Test epochs: 10000, 25000, 50000, 100000\n\n");
+    printf("  - Test epochs: 10, 25, 50, 100, 200\n\n");
 }
 
 int main(int argc, char *argv[]) {
+    double best_mse = 1e9;  // Initialize to a large value
+    double best_learning_rate = 0.0;
+    int best_rounds = 0;
+
     // Parse command line arguments
     int load_mode = 0;
     char *model_path = NULL;
     Net *base_net = NULL;
+    
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -47,7 +52,7 @@ int main(int argc, char *argv[]) {
     }
 
     double learning_rates[] = {0.01, 0.1, 0.5, 1.0};
-    int rounds[] = {10000, 25000, 50000, 100000};
+    int rounds[] = {10, 25, 50, 100, 200};
     int num_learning_rates = sizeof(learning_rates) / sizeof(double);
     int num_rounds = sizeof(rounds) / sizeof(int);
 
@@ -61,20 +66,30 @@ int main(int argc, char *argv[]) {
         printf("Model loaded successfully\n\n");
     }
 
-    Config* config = load_config("conf/xornet.conf");
+    Config* config = load_config("conf/digits.conf");
     if(!config) {
         fprintf(stderr, "Failed to load config file.\n");
         if (base_net) free_net(base_net);
         return 1;
     }
 
-    double **inputs = NULL;
-    double *expected = NULL;
-    int num_samples = 0;
+    double **train_inputs = NULL;
+    double **train_expected = NULL;
+    int num_train_samples = 0;
+    double **test_inputs = NULL;
+    double **test_expected = NULL;
+    int num_test_samples = 0;
 
-    load_dataset(config->dataset_path, &inputs, &expected, &num_samples, config->input_size);
+    load_dataset_multiclass(config->train_dataset_path,
+                            &train_inputs, &train_expected,
+                            &num_train_samples, config->input_size,
+                            config->output_size);
+    load_dataset_multiclass(config->test_dataset_path,
+                            &test_inputs, &test_expected,
+                            &num_test_samples, config->input_size,
+                            config->output_size);
 
-    printf("| Learning Rate | Rounds | MSE      |\n");
+    printf("| Learning Rate | Rounds | Test MSE |\n");
     printf("|---------------|--------|----------|\n");
 
     for (int i = 0; i < num_learning_rates; i++) {
@@ -101,18 +116,32 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            train_nn(inputs, expected, num_samples, net, rounds[j], learning_rates[i]);
-            double mse = test_nn_and_get_mse(inputs, expected, num_samples, net);
+            train_nn_multiclass(train_inputs, train_expected, num_train_samples,
+                                net, rounds[j], learning_rates[i]);
+            double mse = test_nn_and_get_mse_multiclass(
+                test_inputs, test_expected, num_test_samples, net);
 
             printf("| %-13.2f | %-6d | %-8.6f |\n", learning_rates[i], rounds[j], mse);
+
+            // Store parameters if MSE is the best so far
+            if ((i == 0 && j == 0) || mse < best_mse) {
+                best_mse = mse;
+                best_learning_rate = learning_rates[i];
+                best_rounds = rounds[j];
+            }
 
             free_net(net);
         }
     }
 
     if (base_net) free_net(base_net);
-    free_dataset(inputs, expected, num_samples);
+    free_dataset_multiclass(train_inputs, train_expected, num_train_samples);
+    free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
     free_config(config);
+
+    printf("\nBest parameters found:\n");   
+    printf("  - Learning rate: %.2f\n", best_learning_rate);
+    printf("  - Rounds: %d\n", best_rounds);
 
     return 0;
 }
