@@ -9,7 +9,7 @@ BUILD_DIR = build
 MODELS_DIR = models
 
 # All executables
-all: directories xor gym accuracy digits generate_digits
+all: directories xor gym accuracy digits generate_digits convert_optdigits
 
 # Create necessary directories
 directories:
@@ -25,11 +25,14 @@ gym: $(BUILD_DIR)/gym.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/conf
 accuracy: $(BUILD_DIR)/accuracy.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/accuracy $(BUILD_DIR)/accuracy.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
 
-digits: $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
+digits: directories $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/digits $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
 
 generate_digits: $(SRC_DIR)/generate_digits.c
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/generate_digits $(SRC_DIR)/generate_digits.c $(LDFLAGS)
+
+convert_optdigits: $(SRC_DIR)/convert_optdigits.c
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/convert_optdigits $(SRC_DIR)/convert_optdigits.c $(LDFLAGS)
 
 config: $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/config $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o $(LDFLAGS)

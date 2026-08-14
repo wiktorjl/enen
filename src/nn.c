@@ -453,7 +453,9 @@ Net* load_net(const char *filename) {
 void train_nn_multiclass(double **inputs, double **expected, int num_samples, Net *net, int rounds, double learning_rate) {
     int *order = NULL;
 
+    printf("Training progress: ");
     for (int round = 0; round < rounds; round++) {
+        printf(".");
         order = init_order_array(num_samples);
 
         for(int i = 0; i < num_samples; ++i) {
@@ -463,6 +465,7 @@ void train_nn_multiclass(double **inputs, double **expected, int num_samples, Ne
 
         free(order);
     }
+    printf(" done!\n");
 }
 
 void test_nn_multiclass(double **inputs, double **expected, int num_samples, Net *net) {

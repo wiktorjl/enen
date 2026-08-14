@@ -8,7 +8,8 @@ typedef struct {
     int *hidden_layer_sizes;  // Array of sizes for each hidden layer
     double learning_rate;
     int epochs;
-    char dataset_path[256];
+    char train_dataset_path[256];
+    char test_dataset_path[256];
 } Config;
 
 Config* load_config(const char* filename);

@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 
 // 8x8 binary patterns for digits 0-9
 int digits[10][8][8] = {

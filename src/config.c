@@ -94,20 +94,22 @@ Config* load_config(const char* filename) {
                      
 
                 } else if(strcmp(key, "output_size") == 0) {
-                    // printf("Storing config output_size=%s\n", val);
                     config->output_size = atoi(val);
                 } else if(strcmp(key, "learning_rate") == 0) {
-                    // printf("Storing config learning_rate=%s\n", val);
                     config->learning_rate = atof(val);
                 } else if(strcmp(key, "epochs") == 0) {
-                    // printf("Storing config epochs=%s\n", val);
                     config->epochs = atoi(val);
-                } else if(strcmp(key, "dataset") == 0) {
-                    // printf("Storing config dataset=%s\n", val);
+                } else if(strcmp(key, "train_dataset") == 0) {
                     if(val) {
                         // Copy dataset path safely into fixed-size buffer
-                        strncpy(config->dataset_path, val, sizeof(config->dataset_path) - 1);
-                        config->dataset_path[sizeof(config->dataset_path) - 1] = '\0';
+                        strncpy(config->train_dataset_path, val, sizeof(config->train_dataset_path) - 1);
+                        config->train_dataset_path[sizeof(config->train_dataset_path) - 1] = '\0';
+                    }
+                } else if(strcmp(key, "test_dataset") == 0) {
+                    if(val) {
+                        // Copy dataset path safely into fixed-size buffer
+                        strncpy(config->test_dataset_path, val, sizeof(config->test_dataset_path) - 1);
+                        config->test_dataset_path[sizeof(config->test_dataset_path) - 1] = '\0';
                     }
                 } else {
                     fprintf(stderr, "Warning: Unknown configuration key '%s' (ignored)\n", key);
@@ -144,8 +146,13 @@ Config* load_config(const char* filename) {
         free_config(config);
         return NULL;
     }
-    if (strlen(config->dataset_path) == 0) {
-        fprintf(stderr, "Error: Missing 'dataset' path in config\n");
+    if (strlen(config->train_dataset_path) == 0) {
+        fprintf(stderr, "Error: Missing 'train dataset' path in config\n");
+        free_config(config);
+        return NULL;
+    }
+    if (strlen(config->test_dataset_path) == 0) {
+        fprintf(stderr, "Error: Missing 'test dataset' path in config\n");
         free_config(config);
         return NULL;
     }
@@ -174,5 +181,6 @@ void print_config(const Config* config) {
     }
     printf("  Learning Rate: %f\n", config->learning_rate);
     printf("  Epochs: %d\n", config->epochs);
-    printf("  Dataset Path: %s\n", config->dataset_path);
+    printf("  Train Dataset Path: %s\n", config->train_dataset_path);
+    printf("  Test Dataset Path: %s\n", config->test_dataset_path);
 }

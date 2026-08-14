@@ -1,0 +1,131 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/xor.o",
+      "src/xor.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/xor.c",
+    "output": "/home/user/code/enen/build/xor.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/nn.o",
+      "src/nn.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/nn.c",
+    "output": "/home/user/code/enen/build/nn.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/tools.o",
+      "src/tools.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/tools.c",
+    "output": "/home/user/code/enen/build/tools.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/config.o",
+      "src/config.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/config.c",
+    "output": "/home/user/code/enen/build/config.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/gym.o",
+      "src/gym.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/gym.c",
+    "output": "/home/user/code/enen/build/gym.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/accuracy.o",
+      "src/accuracy.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/accuracy.c",
+    "output": "/home/user/code/enen/build/accuracy.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-c",
+      "-o",
+      "build/digits.o",
+      "src/digits.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/digits.c",
+    "output": "/home/user/code/enen/build/digits.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-g",
+      "-Wall",
+      "-fopenmp",
+      "-Isrc",
+      "-fopenmp",
+      "-o",
+      "build/generate_digits",
+      "src/generate_digits.c"
+    ],
+    "directory": "/home/user/code/enen",
+    "file": "/home/user/code/enen/src/generate_digits.c",
+    "output": "/home/user/code/enen/build/generate_digits"
+  }
+]

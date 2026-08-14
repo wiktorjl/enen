@@ -98,9 +98,9 @@ int main(int argc, char *argv[]) {
         double **expected = NULL;
         int num_samples = 0;
 
-        load_dataset_multiclass(config->dataset_path, &inputs, &expected,
+        load_dataset_multiclass(config->train_dataset_path, &inputs, &expected,
                                 &num_samples, config->input_size, config->output_size);
-        printf("Loaded %d samples\n", num_samples);
+        printf("Loaded %d training samples\n", num_samples);
 
 #ifdef _OPENMP
         int num_threads = omp_get_max_threads();
@@ -113,9 +113,19 @@ int main(int argc, char *argv[]) {
 
         printf("Training complete!\n");
 
+
+        // Now load the test dataset
+        free(inputs);
+        free(expected);
+        load_dataset_multiclass(config->test_dataset_path, &inputs, &expected,
+                            &num_samples, config->input_size, config->output_size);
+        printf("Loaded %d test samples\n", num_samples);
+
+
         // Calculate and display MSE
         double mse = test_nn_and_get_mse_multiclass(inputs, expected, num_samples, net);
         printf("Final MSE: %.6f\n", mse);
+
 
         // Test the network
         test_nn_multiclass(inputs, expected, num_samples, net);
@@ -138,7 +148,7 @@ int main(int argc, char *argv[]) {
         double **expected = NULL;
         int num_samples = 0;
 
-        load_dataset_multiclass(config->dataset_path, &inputs, &expected,
+        load_dataset_multiclass(config->test_dataset_path, &inputs, &expected,
                                 &num_samples, config->input_size, config->output_size);
         printf("Loaded %d samples\n", num_samples);
 
