@@ -9,16 +9,13 @@ BUILD_DIR = build
 MODELS_DIR = models
 
 # All executables
-all: directories xor gym accuracy digits generate_digits convert_optdigits
+all: directories gym accuracy digits generate_digits convert_optdigits
 
 # Create necessary directories
 directories:
 	@mkdir -p $(BUILD_DIR) $(MODELS_DIR)
 
 # Executable rules
-xor: $(BUILD_DIR)/xor.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/xor $(BUILD_DIR)/xor.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
-
 gym: $(BUILD_DIR)/gym.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/gym $(BUILD_DIR)/gym.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
 
@@ -38,9 +35,6 @@ config: $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/config $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o $(LDFLAGS)
 
 # Object file rules
-$(BUILD_DIR)/xor.o: $(SRC_DIR)/xor.c $(SRC_DIR)/nn.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/xor.c -o $(BUILD_DIR)/xor.o
-
 $(BUILD_DIR)/gym.o: $(SRC_DIR)/gym.c $(SRC_DIR)/nn.h
 	$(CC) $(CFLAGS) -c $(SRC_DIR)/gym.c -o $(BUILD_DIR)/gym.o
 

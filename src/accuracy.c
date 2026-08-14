@@ -8,6 +8,39 @@
 #include "config.h"
 #include "tools.h"
 
+#define NUM_ACCURACY_BINS 10
+
+static int index_of_max(const double *values, int count) {
+    int max_index = 0;
+
+    for (int i = 1; i < count; i++) {
+        if (values[i] > values[max_index]) {
+            max_index = i;
+        }
+    }
+
+    return max_index;
+}
+
+static int count_correct_predictions(double **inputs, double **expected,
+                                     int num_samples, Net *net) {
+    int output_layer = net->num_layers - 1;
+    int output_size = net->layer_sizes[output_layer];
+    int correct_predictions = 0;
+
+    for (int i = 0; i < num_samples; i++) {
+        forward_pass(inputs[i], net);
+        int prediction = index_of_max(net->activations[output_layer], output_size);
+        int expected_class = index_of_max(expected[i], output_size);
+
+        if (prediction == expected_class) {
+            correct_predictions++;
+        }
+    }
+
+    return correct_predictions;
+}
+
 void print_bar(double value, double max_value, int width) {
     if (value < 0) value = 0;
     int bar_length = (int)((value / max_value) * width);
@@ -26,19 +59,17 @@ void print_bar(double value, double max_value, int width) {
 }
 
 void print_histogram(double* accuracies, int num_runs) {
-    int counts[5] = {0};
+    int counts[NUM_ACCURACY_BINS] = {0};
 
     for (int i = 0; i < num_runs; i++) {
-        int acc_val = (int)round(accuracies[i]);
-        if (acc_val == 0) counts[0]++;
-        else if (acc_val == 25) counts[1]++;
-        else if (acc_val == 50) counts[2]++;
-        else if (acc_val == 75) counts[3]++;
-        else if (acc_val == 100) counts[4]++;
+        int bin = (int)(accuracies[i] / 10.0);
+        if (bin < 0) bin = 0;
+        if (bin >= NUM_ACCURACY_BINS) bin = NUM_ACCURACY_BINS - 1;
+        counts[bin]++;
     }
 
     int max_count = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < NUM_ACCURACY_BINS; i++) {
         if (counts[i] > max_count) {
             max_count = counts[i];
         }
@@ -50,9 +81,11 @@ void print_histogram(double* accuracies, int num_runs) {
         return;
     }
 
-    double levels[] = {0.0, 25.0, 50.0, 75.0, 100.0};
-    for (int i = 0; i < 5; i++) {
-        printf("%5.1f%% | ", levels[i]);
+    for (int i = 0; i < NUM_ACCURACY_BINS; i++) {
+        int lower_bound = i * 10;
+        int upper_bound = (i + 1) * 10;
+        printf(i == NUM_ACCURACY_BINS - 1 ? "%3d-%3d%% | " : "%3d-<%3d%% | ",
+               lower_bound, upper_bound);
         print_bar(counts[i], max_count, 50);
         printf(" (%d runs)\n", counts[i]);
     }
@@ -70,7 +103,7 @@ void print_help(const char *program_name) {
     printf("  - Report accuracy statistics across all runs\n\n");
     printf("Examples:\n");
     printf("  %s 100                         # Train 100 times, show statistics\n", program_name);
-    printf("  %s --load models/xor.model     # Test pre-trained model once\n", program_name);
+    printf("  %s --load models/digits.model  # Test pre-trained model once\n", program_name);
 }
 
 int main(int argc, char *argv[]) {
@@ -124,59 +157,77 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    Config* config = load_config("conf/xornet.conf");
+    Config* config = load_config("conf/digits.conf");
     if(!config) {
         fprintf(stderr, "Failed to load config file.\n");
         return 1;
     }
 
-    double **inputs = NULL;
-    double *expected = NULL;
-    int num_samples = 0;
+    double **test_inputs = NULL;
+    double **test_expected = NULL;
+    int num_test_samples = 0;
 
-    load_dataset(config->dataset_path, &inputs, &expected, &num_samples, config->input_size);
-
+    load_dataset_multiclass(config->test_dataset_path,
+                            &test_inputs, &test_expected, &num_test_samples,
+                            config->input_size, config->output_size);
     if (load_mode) {
         // Load model and test once
         printf("Loading model from %s...\n", model_path);
         Net *net = load_net(model_path);
         if (!net) {
             fprintf(stderr, "Failed to load model\n");
-            free_dataset(inputs, expected, num_samples);
+            free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
             free_config(config);
             return 1;
         }
+
+        int output_layer = net->num_layers - 1;
+        if (net->layer_sizes[0] != config->input_size ||
+            net->layer_sizes[output_layer] != config->output_size) {
+            fprintf(stderr,
+                    "Model shape does not match config (expected %d inputs and %d outputs)\n",
+                    config->input_size, config->output_size);
+            free_net(net);
+            free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
+            free_config(config);
+            return 1;
+        }
+
         printf("Model loaded successfully\n");
         print_net(net, 0);
 
-        printf("\nTesting model on %d samples...\n", num_samples);
-        int correct_predictions = 0;
-        for (int i = 0; i < num_samples; i++) {
-            forward_pass(inputs[i], net);
-            int output_layer = net->num_layers - 1;
-            int prediction = (net->activations[output_layer][0] > 0.5) ? 1 : 0;
-            if (prediction == (int)expected[i]) {
-                correct_predictions++;
-            }
-        }
-        double accuracy = (double)correct_predictions / num_samples * 100.0;
-        double mse = test_nn_and_get_mse(inputs, expected, num_samples, net);
+        printf("\nTesting model on %d samples...\n", num_test_samples);
+        int correct_predictions = count_correct_predictions(
+            test_inputs, test_expected, num_test_samples, net);
+        double accuracy = (double)correct_predictions / num_test_samples * 100.0;
+        double mse = test_nn_and_get_mse_multiclass(
+            test_inputs, test_expected, num_test_samples, net);
 
         printf("\n=== Results ===\n");
-        printf("Accuracy: %.1f%% (%d/%d correct)\n", accuracy, correct_predictions, num_samples);
+        printf("Accuracy: %.1f%% (%d/%d correct)\n",
+               accuracy, correct_predictions, num_test_samples);
         printf("MSE: %.6f\n", mse);
 
         free_net(net);
-        free_dataset(inputs, expected, num_samples);
+        free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
         free_config(config);
         return 0;
     }
 
     // Normal mode: train multiple times
+    double **train_inputs = NULL;
+    double **train_expected = NULL;
+    int num_train_samples = 0;
+
+    load_dataset_multiclass(config->train_dataset_path,
+                            &train_inputs, &train_expected, &num_train_samples,
+                            config->input_size, config->output_size);
+
     double* accuracies = malloc(num_runs * sizeof(double));
     if (!accuracies) {
         perror("Failed to allocate memory for accuracies");
-        free_dataset(inputs, expected, num_samples);
+        free_dataset_multiclass(train_inputs, train_expected, num_train_samples);
+        free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
         free_config(config);
         return 1;
     }
@@ -187,63 +238,74 @@ int main(int argc, char *argv[]) {
     printf("--- Live Average Accuracy Plateau ---\n");
 
     double running_total_accuracy = 0.0;
+    int completed_runs = 0;
 
     for (int run = 0; run < num_runs; run++) {
         Net *net = create_net(config);
         if (!net) {
-            fprintf(stderr, "Failed to create network for run %d.\n", run);
+            fprintf(stderr, "Failed to create network for run %d.\n", run + 1);
             continue;
         }
 
-        train_nn(inputs, expected, num_samples, net, config->epochs, config->learning_rate);
+        train_nn_multiclass(train_inputs, train_expected, num_train_samples,
+                            net, config->epochs, config->learning_rate);
 
-        int correct_predictions = 0;
-        for (int i = 0; i < num_samples; i++) {
-            forward_pass(inputs[i], net);
-            int output_layer = net->num_layers - 1;
-            int prediction = (net->activations[output_layer][0] > 0.5) ? 1 : 0;
-            if (prediction == (int)expected[i]) {
-                correct_predictions++;
-            }
-        }
-        accuracies[run] = (double)correct_predictions / num_samples * 100.0;
-        running_total_accuracy += accuracies[run];
-        double running_avg = running_total_accuracy / (run + 1);
+        int correct_predictions = count_correct_predictions(
+            test_inputs, test_expected, num_test_samples, net);
+        double accuracy = (double)correct_predictions / num_test_samples * 100.0;
+        accuracies[completed_runs] = accuracy;
+        completed_runs++;
+        running_total_accuracy += accuracy;
+        double running_avg = running_total_accuracy / completed_runs;
 
         free_net(net);
 
-        printf("Run %4d/%-4d | Acc: %5.1f%% | Avg: %5.1f%% ", run + 1, num_runs, accuracies[run], running_avg);
+        printf("Run %4d/%-4d | Acc: %5.1f%% | Avg: %5.1f%% ",
+               run + 1, num_runs, accuracy, running_avg);
         print_bar(running_avg, 100, 40);
         printf("\n");
+    }
+
+    if (completed_runs == 0) {
+        fprintf(stderr, "No training runs completed successfully.\n");
+        free(accuracies);
+        free_dataset_multiclass(train_inputs, train_expected, num_train_samples);
+        free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
+        free_config(config);
+        return 1;
     }
 
     double min_accuracy = 100.0;
     double max_accuracy = 0.0;
 
-    for (int i = 0; i < num_runs; i++) {
+    for (int i = 0; i < completed_runs; i++) {
         if (accuracies[i] < min_accuracy) min_accuracy = accuracies[i];
         if (accuracies[i] > max_accuracy) max_accuracy = accuracies[i];
     }
-    double final_avg_accuracy = running_total_accuracy / num_runs;
+    double final_avg_accuracy = running_total_accuracy / completed_runs;
 
     double sum_sq_diff = 0.0;
-    for (int i = 0; i < num_runs; i++) {
+    for (int i = 0; i < completed_runs; i++) {
         sum_sq_diff += pow(accuracies[i] - final_avg_accuracy, 2);
     }
-    double std_dev = (num_runs > 1) ? sqrt(sum_sq_diff / (num_runs - 1)) : 0.0;
-    double sem = (num_runs > 0) ? std_dev / sqrt(num_runs) : 0.0;
+    double std_dev = (completed_runs > 1)
+        ? sqrt(sum_sq_diff / (completed_runs - 1))
+        : 0.0;
+    double sem = std_dev / sqrt(completed_runs);
 
-    printf("\n\n--- Statistical Summary over %d runs ---\n", num_runs);
+    printf("\n\n--- Statistical Summary over %d completed runs ---\n",
+           completed_runs);
     printf("Average Accuracy: %6.2f%%\n", final_avg_accuracy);
     printf("Standard Deviation: %6.2f%%\n", std_dev);
     printf("Standard Error:   %6.2f%%\n", sem);
     printf("Minimum Accuracy: %6.2f%%\n", min_accuracy);
     printf("Maximum Accuracy: %6.2f%%\n", max_accuracy);
 
-    print_histogram(accuracies, num_runs);
+    print_histogram(accuracies, completed_runs);
 
     free(accuracies);
-    free_dataset(inputs, expected, num_samples);
+    free_dataset_multiclass(train_inputs, train_expected, num_train_samples);
+    free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
     free_config(config);
 
     return 0;

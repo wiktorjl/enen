@@ -1,7 +1,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -37,13 +36,12 @@ void print_net(const Net *net, int verbose) {
                 printf("  [%d]: %f\n", j, net->biases[layer][j]);
             }
         }
-    }
-
-    printf("\nActivations:\n");
-    for (int layer = 0; layer < net->num_layers; layer++) {
-        printf("Layer %d:\n", layer);
-        for (int i = 0; i < net->layer_sizes[layer]; i++) {
-            printf("  [%d]: %f\n", i, net->activations[layer][i]);
+        printf("\nActivations:\n");
+        for (int layer = 0; layer < net->num_layers; layer++) {
+            printf("Layer %d:\n", layer);
+            for (int i = 0; i < net->layer_sizes[layer]; i++) {
+                printf("  [%d]: %f\n", i, net->activations[layer][i]);
+            }
         }
     }
 }
