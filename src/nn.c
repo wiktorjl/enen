@@ -454,8 +454,11 @@ void train_nn_multiclass(double **inputs, double **expected, int num_samples, Ne
     int *order = NULL;
 
     printf("Training progress: ");
+    fflush(stdout);
     for (int round = 0; round < rounds; round++) {
-        printf(".");
+        // printf(".");
+        printf("\rTraining progress: Epoch %d/%d", round + 1, rounds);
+        fflush(stdout);
         order = init_order_array(num_samples);
 
         for(int i = 0; i < num_samples; ++i) {
