@@ -1,174 +1,147 @@
-# Neural Network in C
+# UCI Digits Classifier in C
 
-An educational handwritten-digit classifier implemented in C without external
-machine-learning libraries. It trains a configurable fully connected neural
-network on 8×8 grayscale images and classifies digits from 0 through 9.
+An educational multiclass classifier for the UCI Optical Recognition of
+Handwritten Digits dataset. The implementation is plain C: no machine-learning
+frameworks, hidden binary-classification path, or synthetic fallback dataset.
 
-## Features
+The model accepts 64 normalized pixels from an 8×8 image and predicts one of
+ten classes (digits 0 through 9). Hidden layers use sigmoid activations; the
+output layer uses softmax and is trained with cross-entropy loss.
 
-- Configurable fully connected network architecture
-- One-hot multiclass targets and argmax classification
-- Separate training and test datasets
-- Xavier weight initialization and stochastic gradient descent
-- OpenMP parallelization
-- Model save/load support
-- Hyperparameter and repeated-run accuracy tools
+## Build and verify
 
-## Requirements
-
-- GCC with OpenMP support
-- GNU Make
-
-## Build
+Requirements are a C11 compiler, GNU Make, and the standard math library.
 
 ```bash
 make all
+make check
 ```
 
-Executables are written to `build/`. To remove generated build artifacts:
+Executables are written to `build/`. `make check` runs the core tests and also
+reconverts the raw UCI files, byte-for-byte comparing the results with the
+committed normalized CSV splits.
 
-```bash
-make clean
-```
-
-## Quick start
-
-Train the configured network and save it as `models/digits.model`:
+## Train and evaluate
 
 ```bash
 ./build/digits
 ```
 
-Evaluate a saved model on the configured test split:
-
-```bash
-./build/digits --load models/digits.model
-```
-
-## Programs
-
-### `digits`
-
-The main training and evaluation program.
-
-```bash
-./build/digits
-./build/digits --load models/digits.model
-./build/digits --help
-```
-
-Without `--load`, it:
+This command:
 
 1. Loads `conf/digits.conf`.
-2. Creates a new network.
-3. Trains on `train_dataset`.
-4. Evaluates on `test_dataset`.
-5. Saves the trained model to `models/digits.model`.
+2. Trains a newly initialized network on `datasets/UCI_digits_train.csv`.
+3. Reports accuracy, cross-entropy, and a confusion matrix on the held-out test
+   split.
+4. Saves the trained network to `models/digits.model`.
 
-### `gym`
-
-Tests combinations of learning rate and epoch count. Every candidate trains on
-the configured training split and reports MSE on the test split.
+Evaluate a saved model without retraining:
 
 ```bash
-./build/gym
-./build/gym --load models/digits.model
-./build/gym --help
+./build/digits --load models/digits.model
 ```
 
-### `accuracy`
+The loader rejects malformed models and models whose input or output dimensions
+do not match the configured dataset.
 
-Trains multiple independently initialized networks and reports test accuracy,
-mean, standard deviation, standard error, minimum, maximum, and a histogram.
-It can also evaluate one saved model.
+## Analysis programs
+
+`accuracy` repeats the complete train/test experiment with independent random
+initializations and summarizes the distribution of held-out accuracies:
 
 ```bash
 ./build/accuracy 10
 ./build/accuracy --load models/digits.model
-./build/accuracy --help
 ```
 
-### Dataset utilities
+`gym` compares learning rates and epoch counts. It reserves every fifth row of
+the configured training split for validation so that the test split does not
+influence hyperparameter selection. Each candidate starts from identical model
+parameters and sees the same shuffle sequence.
 
 ```bash
-./build/generate_digits
-./build/convert_optdigits
+./build/gym
+./build/gym --load models/digits.model
 ```
 
-`generate_digits` creates a small synthetic digit dataset.
-`convert_optdigits` converts the original optical-digits files to the CSV format
-used by the classifier.
+The optional model is a starting point to clone and fine-tune; no temporary
+model files are created.
 
-## Configuration
+## Dataset
 
-The programs load `conf/digits.conf`:
+The repository contains the official train/test organization in two forms:
 
-```ini
-input_size=64
-hidden_layers=128,64
-output_size=10
-learning_rate=1.0
-epochs=200
-train_dataset=datasets/UCI_digits_train.csv
-test_dataset=datasets/UCI_digits_test.csv
-```
+- `datasets/optdigits.tra`: 3,823 original UCI training rows, with pixel
+  intensities from 0 through 16.
+- `datasets/optdigits.tes`: 1,797 original UCI test rows.
+- `datasets/UCI_digits_train.csv`: normalized training rows used by the model.
+- `datasets/UCI_digits_test.csv`: normalized test rows used by the model.
 
-- `input_size`: number of input features; 64 represents an 8×8 image
-- `hidden_layers`: comma-separated hidden-layer sizes
-- `output_size`: number of digit classes
-- `learning_rate`: stochastic-gradient-descent step size
-- `epochs`: complete passes over the training split
-- `train_dataset`: CSV used for parameter updates
-- `test_dataset`: independent CSV used for evaluation
-
-Each CSV row contains 64 normalized pixel values followed by a class label:
+Each normalized row has exactly 65 comma-separated fields and no header:
 
 ```text
 pixel_0,pixel_1,...,pixel_63,label
 ```
 
-The loader converts the label to a ten-element one-hot target vector.
+Pixels must be finite values in `[0, 1]`; labels must be integers from `0` to
+`9`. The loader validates every field and converts each label to a ten-element
+one-hot target. A malformed or empty dataset is an error rather than a partially
+initialized training sample.
 
-## Project structure
+To regenerate normalized files from raw UCI data:
 
-```text
-.
-├── src/
-│   ├── nn.c / nn.h             network creation, training, testing, persistence
-│   ├── config.c / config.h     configuration parser
-│   ├── tools.c / tools.h       data loading and numerical utilities
-│   ├── digits.c                main classifier
-│   ├── gym.c                   hyperparameter evaluation
-│   ├── accuracy.c              repeated-run statistics
-│   ├── generate_digits.c       synthetic dataset generator
-│   └── convert_optdigits.c     dataset converter
-├── conf/digits.conf
-├── datasets/
-├── docs/DIGITS.md
-└── Makefile
+```bash
+./build/convert_optdigits \
+  datasets/optdigits.tra datasets/UCI_digits_train.csv \
+  datasets/optdigits.tes datasets/UCI_digits_test.csv
 ```
 
-## Network implementation
+The converter divides each original pixel intensity by 16 and preserves the
+integer class label.
 
-The default architecture is:
+## Configuration
 
-```text
-64 inputs → 128 hidden → 64 hidden → 10 outputs
+All programs read `conf/digits.conf`:
+
+```ini
+input_size=64
+hidden_layers=128,64
+output_size=10
+learning_rate=0.05
+epochs=25
+train_dataset=datasets/UCI_digits_train.csv
+test_dataset=datasets/UCI_digits_test.csv
 ```
 
-Forward propagation applies a sigmoid activation to each neuron. Training uses
-one-hot targets, mean squared error, backpropagation, and per-sample stochastic
-gradient updates. Samples are shuffled before each epoch. Classification selects
-the output neuron with the largest activation.
+The parser requires each field exactly once. Sizes and epoch counts must be
+positive, the output must contain at least two classes, the learning rate must
+be in `(0, 10]`, and both dataset paths must be nonempty.
 
-Models use a compact binary serialization containing the architecture, weights,
-and biases.
+## Implementation
 
-## Further reading
+The default architecture contains 17,226 trainable parameters:
 
-See [docs/DIGITS.md](docs/DIGITS.md) for a detailed walkthrough of the network,
-training process, dataset, and model format.
+```text
+64 inputs -> 128 hidden -> 64 hidden -> 10 class probabilities
+```
 
-## License
+Weights use Xavier initialization. Training performs per-sample stochastic
+gradient updates after shuffling the sample order each epoch. Softmax produces
+one normalized distribution across all ten classes, prediction uses its argmax,
+and cross-entropy measures how much probability was assigned to the true class.
 
-This project is intended for learning and teaching.
+The main source layout is:
+
+```text
+src/nn.c, src/nn.h                 network, training, metrics, persistence
+src/dataset.c, src/dataset.h       validated normalized-CSV loading
+src/config.c, src/config.h         strict configuration parsing
+src/digits.c                       primary train/evaluate workflow
+src/accuracy.c                     repeated-run statistics
+src/gym.c                          validation-based hyperparameter comparison
+src/convert_optdigits.c            raw UCI to normalized CSV conversion
+tests/test_core.c                  dataset, softmax, training, and model tests
+```
+
+See [docs/DIGITS.md](docs/DIGITS.md) for the mathematical walkthrough and the
+exact train/validation/test responsibilities.

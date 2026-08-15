@@ -116,6 +116,10 @@ static int convert_file(const char *input_path, const char *output_path) {
         fprintf(stderr, "Failed while reading input file '%s'\n", input_path);
         status = -1;
     }
+    if (status == 0 && sample_count == 0) {
+        fprintf(stderr, "Input file '%s' contains no samples\n", input_path);
+        status = -1;
+    }
     if (fclose(input) != 0) {
         fprintf(stderr, "Failed to close input file '%s'\n", input_path);
         status = -1;
@@ -128,6 +132,9 @@ static int convert_file(const char *input_path, const char *output_path) {
     if (status == 0) {
         printf("Converted %zu samples: %s -> %s\n", sample_count,
                input_path, output_path);
+    } else {
+        /* Never leave a partial CSV that could later be mistaken for valid data. */
+        remove(output_path);
     }
     return status;
 }
@@ -138,8 +145,8 @@ static void print_usage(const char *program_name) {
             "Convert UCI optdigits rows to normalized CSV rows containing\n"
             "64 floating-point features followed by the digit label.\n\n"
             "Example:\n"
-            "  %s datasets/optdigits.tra datasets/digits_train.csv "
-            "datasets/optdigits.tes datasets/digits_test.csv\n",
+            "  %s datasets/optdigits.tra datasets/UCI_digits_train.csv "
+            "datasets/optdigits.tes datasets/UCI_digits_test.csv\n",
             program_name, program_name);
 }
 

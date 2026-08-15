@@ -1,59 +1,51 @@
-# Compiler and flags
-CC = gcc
-CFLAGS = -g -Wall -fopenmp -Isrc
-LDFLAGS = -lm -fopenmp
+CC ?= gcc
+CPPFLAGS := -Isrc
+CFLAGS ?= -O2 -g
+CFLAGS += -std=c11 -Wall -Wextra -Wpedantic
+LDLIBS := -lm
 
-# Directories
-SRC_DIR = src
-BUILD_DIR = build
-MODELS_DIR = models
+BUILD_DIR := build
+MODEL_DIR := models
+COMMON_OBJECTS := $(BUILD_DIR)/nn.o $(BUILD_DIR)/dataset.o $(BUILD_DIR)/config.o
+PROGRAMS := digits accuracy gym convert_optdigits
 
-# All executables
-all: directories gym accuracy digits generate_digits convert_optdigits
+.PHONY: all check clean $(PROGRAMS)
 
-# Create necessary directories
-directories:
-	@mkdir -p $(BUILD_DIR) $(MODELS_DIR)
+all: $(addprefix $(BUILD_DIR)/,$(PROGRAMS)) | $(MODEL_DIR)
 
-# Executable rules
-gym: $(BUILD_DIR)/gym.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/gym $(BUILD_DIR)/gym.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
+$(PROGRAMS): %: $(BUILD_DIR)/%
 
-accuracy: $(BUILD_DIR)/accuracy.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/accuracy $(BUILD_DIR)/accuracy.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
+$(BUILD_DIR) $(MODEL_DIR):
+	mkdir -p $@
 
-digits: directories $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/digits $(BUILD_DIR)/digits.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/tools.o $(BUILD_DIR)/config.o $(LDFLAGS)
+$(BUILD_DIR)/digits: $(BUILD_DIR)/digits.o $(COMMON_OBJECTS) | $(BUILD_DIR) $(MODEL_DIR)
+	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-generate_digits: $(SRC_DIR)/generate_digits.c
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/generate_digits $(SRC_DIR)/generate_digits.c $(LDFLAGS)
+$(BUILD_DIR)/accuracy: $(BUILD_DIR)/accuracy.o $(COMMON_OBJECTS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-convert_optdigits: $(SRC_DIR)/convert_optdigits.c
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/convert_optdigits $(SRC_DIR)/convert_optdigits.c $(LDFLAGS)
+$(BUILD_DIR)/gym: $(BUILD_DIR)/gym.o $(COMMON_OBJECTS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-config: $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/config $(BUILD_DIR)/config.o $(BUILD_DIR)/tools.o $(LDFLAGS)
+$(BUILD_DIR)/convert_optdigits: $(BUILD_DIR)/convert_optdigits.o | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-# Object file rules
-$(BUILD_DIR)/gym.o: $(SRC_DIR)/gym.c $(SRC_DIR)/nn.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/gym.c -o $(BUILD_DIR)/gym.o
+$(BUILD_DIR)/test_core: $(BUILD_DIR)/test_core.o $(COMMON_OBJECTS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-$(BUILD_DIR)/accuracy.o: $(SRC_DIR)/accuracy.c $(SRC_DIR)/nn.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/accuracy.c -o $(BUILD_DIR)/accuracy.o
+$(BUILD_DIR)/%.o: src/%.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/digits.o: $(SRC_DIR)/digits.c $(SRC_DIR)/nn.h $(SRC_DIR)/config.h $(SRC_DIR)/tools.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/digits.c -o $(BUILD_DIR)/digits.o
+$(BUILD_DIR)/test_core.o: tests/test_core.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/nn.o: $(SRC_DIR)/nn.c $(SRC_DIR)/nn.h $(SRC_DIR)/tools.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/nn.c -o $(BUILD_DIR)/nn.o
+check: all $(BUILD_DIR)/test_core
+	./$(BUILD_DIR)/test_core
+	./$(BUILD_DIR)/convert_optdigits datasets/optdigits.tra $(BUILD_DIR)/train.csv datasets/optdigits.tes $(BUILD_DIR)/test.csv
+	cmp datasets/UCI_digits_train.csv $(BUILD_DIR)/train.csv
+	cmp datasets/UCI_digits_test.csv $(BUILD_DIR)/test.csv
 
-$(BUILD_DIR)/tools.o: $(SRC_DIR)/tools.c $(SRC_DIR)/tools.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/tools.c -o $(BUILD_DIR)/tools.o
-
-$(BUILD_DIR)/config.o: $(SRC_DIR)/config.c $(SRC_DIR)/config.h $(SRC_DIR)/tools.h
-	$(CC) $(CFLAGS) -c $(SRC_DIR)/config.c -o $(BUILD_DIR)/config.o
-
-
-# Clean rule
 clean:
 	rm -rf $(BUILD_DIR)
+
+-include $(wildcard $(BUILD_DIR)/*.d)

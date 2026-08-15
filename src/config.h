@@ -13,7 +13,6 @@ typedef struct {
 } Config;
 
 Config* load_config(const char* filename);
-void print_config(const Config* config);
 void free_config(Config* config);
 
 #endif // CONFIG_H

@@ -1,147 +1,190 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "nn.h"
 #include "config.h"
-#include "tools.h"
+#include "dataset.h"
+#include "nn.h"
 
-void print_help(const char *program_name) {
-    printf("Usage: %s [OPTIONS]\n\n", program_name);
-    printf("Hyperparameter Tuning Tool\n\n");
-    printf("Options:\n");
-    printf("  --load MODEL    Load pre-trained model and fine-tune with different hyperparameters\n");
-    printf("  --help          Display this help message\n\n");
-    printf("Default behavior (no options):\n");
-    printf("  - Create fresh networks for each hyperparameter combination\n");
-    printf("  - Test learning rates: 0.01, 0.1, 0.5, 1.0\n");
-    printf("  - Test epochs: 10, 25, 50, 100, 200\n\n");
+#define CONFIG_PATH "conf/digits.conf"
+#define VALIDATION_INTERVAL 5
+
+typedef struct {
+    /* Views borrow row storage from the owning Dataset. */
+    double **inputs;
+    double **targets;
+    int count;
+} DatasetView;
+
+static void print_help(const char *program_name) {
+    printf("Usage: %s [--load MODEL]\n\n", program_name);
+    printf("Compare learning rates and epoch counts for UCI digit classification.\n");
+    printf("One fifth of the configured training split is reserved for validation;\n");
+    printf("the configured test split is never used for parameter selection.\n\n");
+    printf("  --load MODEL  Fine-tune clones of a saved starting model\n");
+    printf("  --help        Display this help message\n");
 }
 
-int main(int argc, char *argv[]) {
-    double best_mse = 1e9;  // Initialize to a large value
-    double best_learning_rate = 0.0;
-    int best_rounds = 0;
+static int create_training_validation_views(const Dataset *dataset,
+                                            DatasetView *training,
+                                            DatasetView *validation) {
+    training->count = dataset->num_samples -
+                      (dataset->num_samples + VALIDATION_INTERVAL - 1) /
+                          VALIDATION_INTERVAL;
+    validation->count = dataset->num_samples - training->count;
+    training->inputs = malloc(sizeof(*training->inputs) *
+                              (size_t)training->count);
+    training->targets = malloc(sizeof(*training->targets) *
+                               (size_t)training->count);
+    validation->inputs = malloc(sizeof(*validation->inputs) *
+                                (size_t)validation->count);
+    validation->targets = malloc(sizeof(*validation->targets) *
+                                 (size_t)validation->count);
+    if (!training->inputs || !training->targets || !validation->inputs ||
+        !validation->targets) {
+        perror("Failed to allocate training/validation views");
+        return -1;
+    }
 
-    // Parse command line arguments
-    int load_mode = 0;
-    char *model_path = NULL;
-    Net *base_net = NULL;
-    
+    int training_index = 0;
+    int validation_index = 0;
+    for (int sample = 0; sample < dataset->num_samples; sample++) {
+        DatasetView *view = sample % VALIDATION_INTERVAL == 0
+            ? validation
+            : training;
+        int *index = sample % VALIDATION_INTERVAL == 0
+            ? &validation_index
+            : &training_index;
+        view->inputs[*index] = dataset->inputs[sample];
+        view->targets[*index] = dataset->targets[sample];
+        (*index)++;
+    }
+    return 0;
+}
 
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+static void free_view(DatasetView *view) {
+    free(view->inputs);
+    free(view->targets);
+    view->inputs = NULL;
+    view->targets = NULL;
+    view->count = 0;
+}
+
+int main(int argc, char **argv) {
+    const char *model_path = NULL;
+    for (int argument = 1; argument < argc; argument++) {
+        if (strcmp(argv[argument], "--help") == 0 ||
+            strcmp(argv[argument], "-h") == 0) {
             print_help(argv[0]);
-            return 0;
-        } else if (strcmp(argv[i], "--load") == 0) {
-            if (i + 1 < argc) {
-                load_mode = 1;
-                model_path = argv[i + 1];
-                i++;
-            } else {
-                fprintf(stderr, "Error: --load requires a model file path\n");
-                print_help(argv[0]);
-                return 1;
-            }
-        } else {
-            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
-            print_help(argv[0]);
-            return 1;
+            return EXIT_SUCCESS;
         }
-    }
-
-    double learning_rates[] = {0.01, 0.1, 0.5, 1.0};
-    int rounds[] = {10, 25, 50, 100, 200};
-    int num_learning_rates = sizeof(learning_rates) / sizeof(double);
-    int num_rounds = sizeof(rounds) / sizeof(int);
-
-    if (load_mode) {
-        printf("Loading base model from %s for fine-tuning...\n", model_path);
-        base_net = load_net(model_path);
-        if (!base_net) {
-            fprintf(stderr, "Failed to load model\n");
-            return 1;
+        if (strcmp(argv[argument], "--load") == 0 && argument + 1 < argc &&
+            !model_path) {
+            model_path = argv[++argument];
+            continue;
         }
-        printf("Model loaded successfully\n\n");
+        fprintf(stderr, "Unknown or incomplete option: %s\n", argv[argument]);
+        print_help(argv[0]);
+        return EXIT_FAILURE;
     }
 
-    Config* config = load_config("conf/digits.conf");
-    if(!config) {
-        fprintf(stderr, "Failed to load config file.\n");
-        if (base_net) free_net(base_net);
-        return 1;
+    Config *config = load_config(CONFIG_PATH);
+    if (!config) {
+        return EXIT_FAILURE;
+    }
+    Dataset dataset = {0};
+    if (load_dataset(config->train_dataset_path, config->input_size,
+                     config->output_size, &dataset) != 0) {
+        free_config(config);
+        return EXIT_FAILURE;
     }
 
-    double **train_inputs = NULL;
-    double **train_expected = NULL;
-    int num_train_samples = 0;
-    double **test_inputs = NULL;
-    double **test_expected = NULL;
-    int num_test_samples = 0;
+    DatasetView training = {0};
+    DatasetView validation = {0};
+    if (create_training_validation_views(&dataset, &training, &validation) != 0) {
+        free_view(&training);
+        free_view(&validation);
+        free_dataset(&dataset);
+        free_config(config);
+        return EXIT_FAILURE;
+    }
 
-    load_dataset_multiclass(config->train_dataset_path,
-                            &train_inputs, &train_expected,
-                            &num_train_samples, config->input_size,
-                            config->output_size);
-    load_dataset_multiclass(config->test_dataset_path,
-                            &test_inputs, &test_expected,
-                            &num_test_samples, config->input_size,
-                            config->output_size);
+    unsigned int experiment_seed = (unsigned int)time(NULL);
+    srand(experiment_seed);
+    Net *base_net = model_path ? load_net(model_path) : create_net(config);
+    if (!base_net || !net_matches_dimensions(
+            base_net, config->input_size, config->output_size)) {
+        if (base_net) {
+            fprintf(stderr, "Model dimensions do not match the dataset\n");
+        }
+        free_net(base_net);
+        free_view(&training);
+        free_view(&validation);
+        free_dataset(&dataset);
+        free_config(config);
+        return EXIT_FAILURE;
+    }
 
-    printf("| Learning Rate | Rounds | Test MSE |\n");
-    printf("|---------------|--------|----------|\n");
+    const double learning_rates[] = {0.01, 0.05, 0.1, 0.5};
+    const int epochs[] = {10, 25, 50, 100};
+    const int rate_count = (int)(sizeof(learning_rates) /
+                                 sizeof(learning_rates[0]));
+    const int epoch_count = (int)(sizeof(epochs) / sizeof(epochs[0]));
+    double best_accuracy = -1.0;
+    double best_loss = INFINITY;
+    double best_rate = 0.0;
+    int best_epochs = 0;
 
-    for (int i = 0; i < num_learning_rates; i++) {
-        for (int j = 0; j < num_rounds; j++) {
-            srand(time(NULL));
-            Net *net = NULL;
-
-            if (load_mode) {
-                // Copy the base model by saving and loading to a temp file
-                if (save_net(base_net, ".gym_temp.model") != 0) {
-                    fprintf(stderr, "Failed to copy model.\n");
-                    continue;
-                }
-                net = load_net(".gym_temp.model");
-                if (!net) {
-                    fprintf(stderr, "Failed to load copied model.\n");
-                    continue;
-                }
-            } else {
-                net = create_net(config);
-                if (!net) {
-                    fprintf(stderr, "Failed to create network.\n");
-                    continue;
-                }
+    printf("Fitting %d samples; validating on %d samples.\n",
+           training.count, validation.count);
+    printf("| Learning rate | Epochs | Validation accuracy | Cross-entropy |\n");
+    printf("|---------------|--------|---------------------|---------------|\n");
+    for (int rate = 0; rate < rate_count; rate++) {
+        for (int epoch = 0; epoch < epoch_count; epoch++) {
+            Net *net = clone_net(base_net);
+            if (!net) {
+                fprintf(stderr, "Failed to clone the starting network\n");
+                continue;
             }
 
-            train_nn_multiclass(train_inputs, train_expected, num_train_samples,
-                                net, rounds[j], learning_rates[i]);
-            double mse = test_nn_and_get_mse_multiclass(
-                test_inputs, test_expected, num_test_samples, net);
-
-            printf("| %-13.2f | %-6d | %-8.6f |\n", learning_rates[i], rounds[j], mse);
-
-            // Store parameters if MSE is the best so far
-            if ((i == 0 && j == 0) || mse < best_mse) {
-                best_mse = mse;
-                best_learning_rate = learning_rates[i];
-                best_rounds = rounds[j];
+            /* Identical shuffle streams make comparisons reproducible and fair. */
+            srand(experiment_seed + 1U);
+            if (train_classifier(training.inputs, training.targets,
+                                 training.count, net, epochs[epoch],
+                                 learning_rates[rate]) != 0) {
+                fprintf(stderr, "Training failed for one parameter combination\n");
+                free_net(net);
+                continue;
             }
+            ClassificationMetrics metrics = evaluate_classifier(
+                validation.inputs, validation.targets, validation.count, net,
+                NULL);
+            double accuracy = 100.0 * metrics.correct / metrics.total;
+            printf("| %13.2f | %6d | %18.2f%% | %13.6f |\n",
+                   learning_rates[rate], epochs[epoch], accuracy,
+                   metrics.cross_entropy);
 
+            if (accuracy > best_accuracy ||
+                (accuracy == best_accuracy && metrics.cross_entropy < best_loss)) {
+                best_accuracy = accuracy;
+                best_loss = metrics.cross_entropy;
+                best_rate = learning_rates[rate];
+                best_epochs = epochs[epoch];
+            }
             free_net(net);
         }
     }
 
-    if (base_net) free_net(base_net);
-    free_dataset_multiclass(train_inputs, train_expected, num_train_samples);
-    free_dataset_multiclass(test_inputs, test_expected, num_test_samples);
+    printf("\nBest validation result: %.2f%% accuracy, %.6f cross-entropy\n",
+           best_accuracy, best_loss);
+    printf("Learning rate: %.2f\nEpochs: %d\n", best_rate, best_epochs);
+
+    free_net(base_net);
+    free_view(&training);
+    free_view(&validation);
+    free_dataset(&dataset);
     free_config(config);
-
-    printf("\nBest parameters found:\n");   
-    printf("  - Learning rate: %.2f\n", best_learning_rate);
-    printf("  - Rounds: %d\n", best_rounds);
-
-    return 0;
+    return best_accuracy >= 0.0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

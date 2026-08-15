@@ -3,167 +3,124 @@
 #include <string.h>
 #include <time.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-#include "nn.h"
 #include "config.h"
-#include "tools.h"
+#include "dataset.h"
+#include "nn.h"
 
-void print_help(const char *program_name) {
-    printf("Usage: %s [OPTIONS]\n\n", program_name);
-    printf("8x8 Digit Recognition Neural Network\n\n");
+#define CONFIG_PATH "conf/digits.conf"
+#define MODEL_PATH "models/digits.model"
+
+static void print_help(const char *program_name) {
+    printf("Usage: %s [--load MODEL]\n\n", program_name);
+    printf("Train and evaluate the UCI handwritten-digit classifier.\n\n");
     printf("Options:\n");
-    printf("  --load MODEL    Load pre-trained model from file and test\n");
-    printf("  --help          Display this help message\n\n");
-    printf("Default behavior (no options):\n");
-    printf("  - Load configuration from conf/digits.conf\n");
-    printf("  - Load dataset from datasets/digits_dataset.csv\n");
-    printf("  - Train new network\n");
-    printf("  - Save trained model to digits.model\n\n");
-    printf("Examples:\n");
-    printf("  %s                                # Train and save new model\n", program_name);
-    printf("  %s --load models/digits.model     # Load and test existing model\n", program_name);
+    printf("  --load MODEL  Skip training and evaluate a saved model\n");
+    printf("  --help        Display this help message\n\n");
+    printf("Without --load, the program trains on the configured training split,\n");
+    printf("evaluates on the test split, and writes %s.\n", MODEL_PATH);
 }
 
-int main(int argc, char *argv[]) {
-    srand(time(NULL));
+static void report_results(const Dataset *test_data, Net *net) {
+    int num_classes = test_data->num_classes;
+    int *confusion = calloc((size_t)num_classes * (size_t)num_classes,
+                            sizeof(*confusion));
+    ClassificationMetrics metrics = evaluate_classifier(
+        test_data->inputs, test_data->targets, test_data->num_samples, net,
+        confusion);
 
-    // Parse command line arguments
-    int load_mode = 0;
-    char *model_path = NULL;
+    printf("\nTest accuracy: %.2f%% (%d/%d)\n",
+           100.0 * metrics.correct / metrics.total, metrics.correct,
+           metrics.total);
+    printf("Test cross-entropy: %.6f\n", metrics.cross_entropy);
+    if (confusion) {
+        print_confusion_matrix(confusion, num_classes);
+    }
+    free(confusion);
+}
 
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+int main(int argc, char **argv) {
+    const char *model_path = NULL;
+    for (int argument = 1; argument < argc; argument++) {
+        if (strcmp(argv[argument], "--help") == 0 ||
+            strcmp(argv[argument], "-h") == 0) {
             print_help(argv[0]);
-            return 0;
-        } else if (strcmp(argv[i], "--load") == 0) {
-            if (i + 1 < argc) {
-                load_mode = 1;
-                model_path = argv[i + 1];
-                i++; // Skip next argument
-            } else {
-                fprintf(stderr, "Error: --load requires a model file path\n");
-                print_help(argv[0]);
-                return 1;
-            }
-        } else {
-            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
-            print_help(argv[0]);
-            return 1;
+            return EXIT_SUCCESS;
         }
+        if (strcmp(argv[argument], "--load") == 0 && argument + 1 < argc &&
+            !model_path) {
+            model_path = argv[++argument];
+            continue;
+        }
+        fprintf(stderr, "Unknown or incomplete option: %s\n", argv[argument]);
+        print_help(argv[0]);
+        return EXIT_FAILURE;
     }
 
-    Net *net = NULL;
-    Config *config = NULL;
+    Config *config = load_config(CONFIG_PATH);
+    if (!config) {
+        return EXIT_FAILURE;
+    }
 
-    if (load_mode) {
-        // Load existing model
-        printf("Loading model from %s...\n", model_path);
-        net = load_net(model_path);
-        if (!net) {
-            fprintf(stderr, "Failed to load model\n");
-            return 1;
-        }
-        printf("Model loaded successfully\n");
-        print_net(net, 0);
+    srand((unsigned int)time(NULL));
+    Net *net = model_path ? load_net(model_path) : create_net(config);
+    if (!net) {
+        free_config(config);
+        return EXIT_FAILURE;
+    }
+    if (!net_matches_dimensions(net, config->input_size, config->output_size)) {
+        fprintf(stderr,
+                "Model dimensions do not match the configured dataset "
+                "(%d inputs, %d classes)\n",
+                config->input_size, config->output_size);
+        free_net(net);
+        free_config(config);
+        return EXIT_FAILURE;
+    }
+    print_net(net);
 
-        // Still need to load config for dataset path
-        config = load_config("conf/digits.conf");
-        if (!config) {
-            fprintf(stderr, "Failed to load config\n");
+    Dataset training = {0};
+    if (!model_path) {
+        if (load_dataset(config->train_dataset_path, config->input_size,
+                         config->output_size, &training) != 0) {
             free_net(net);
-            return 1;
-        }
-    } else {
-        // Train new model
-        config = load_config("conf/digits.conf");
-        if (!config) {
-            fprintf(stderr, "Failed to load config\n");
-            return 1;
-        }
-
-        printf("Creating network...\n");
-        net = create_net(config);
-        if (!net) {
-            fprintf(stderr, "Failed to create network\n");
             free_config(config);
-            return 1;
+            return EXIT_FAILURE;
         }
-        print_net(net, 0);
+        printf("Training on %d samples for %d epochs...\n",
+               training.num_samples, config->epochs);
+        if (train_classifier(training.inputs, training.targets,
+                             training.num_samples, net, config->epochs,
+                             config->learning_rate) != 0) {
+            fprintf(stderr, "Training failed\n");
+            free_dataset(&training);
+            free_net(net);
+            free_config(config);
+            return EXIT_FAILURE;
+        }
+        free_dataset(&training);
+    }
 
-        printf("\nLoading dataset...\n");
-        double **inputs = NULL;
-        double **expected = NULL;
-        int num_samples = 0;
+    Dataset test = {0};
+    if (load_dataset(config->test_dataset_path, config->input_size,
+                     config->output_size, &test) != 0) {
+        free_net(net);
+        free_config(config);
+        return EXIT_FAILURE;
+    }
+    printf("Evaluating on %d held-out samples...\n", test.num_samples);
+    report_results(&test, net);
 
-        load_dataset_multiclass(config->train_dataset_path, &inputs, &expected,
-                                &num_samples, config->input_size, config->output_size);
-        printf("Loaded %d training samples\n", num_samples);
-
-#ifdef _OPENMP
-        int num_threads = omp_get_max_threads();
-        printf("Using %d OpenMP threads\n", num_threads);
-#endif
-
-        printf("\nTraining network for %d epochs...\n", config->epochs);
-        train_nn_multiclass(inputs, expected, num_samples, net,
-                           config->epochs, config->learning_rate);
-
-        printf("Training complete!\n");
-
-
-        // Now load the test dataset
-        free(inputs);
-        free(expected);
-        load_dataset_multiclass(config->test_dataset_path, &inputs, &expected,
-                            &num_samples, config->input_size, config->output_size);
-        printf("Loaded %d test samples\n", num_samples);
-
-
-        // Calculate and display MSE
-        double mse = test_nn_and_get_mse_multiclass(inputs, expected, num_samples, net);
-        printf("Final MSE: %.6f\n", mse);
-
-
-        // Test the network
-        test_nn_multiclass(inputs, expected, num_samples, net);
-
-        // Save the model
-        printf("\nSaving model to models/digits.model...\n");
-        if (save_net(net, "models/digits.model") == 0) {
-            printf("Model saved successfully\n");
+    int status = EXIT_SUCCESS;
+    if (!model_path) {
+        if (save_net(net, MODEL_PATH) != 0) {
+            status = EXIT_FAILURE;
         } else {
-            fprintf(stderr, "Failed to save model\n");
+            printf("\nSaved model to %s\n", MODEL_PATH);
         }
-
-        free_dataset_multiclass(inputs, expected, num_samples);
     }
 
-    // If in load mode, still test with the dataset
-    if (load_mode) {
-        printf("\nLoading dataset for testing...\n");
-        double **inputs = NULL;
-        double **expected = NULL;
-        int num_samples = 0;
-
-        load_dataset_multiclass(config->test_dataset_path, &inputs, &expected,
-                                &num_samples, config->input_size, config->output_size);
-        printf("Loaded %d samples\n", num_samples);
-
-        // Calculate and display MSE
-        double mse = test_nn_and_get_mse_multiclass(inputs, expected, num_samples, net);
-        printf("Final MSE: %.6f\n", mse);
-
-        // Test the network
-        test_nn_multiclass(inputs, expected, num_samples, net);
-
-        free_dataset_multiclass(inputs, expected, num_samples);
-    }
-
+    free_dataset(&test);
     free_net(net);
     free_config(config);
-
-    return 0;
+    return status;
 }
