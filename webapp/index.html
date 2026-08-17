@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Train a tiny neural network, draw a digit, and watch its neurons respond."
+    />
+    <title>Glyph — Neural Digit Studio</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Glyph home">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </span>
+          <span>Glyph</span>
+        </a>
+
+        <nav class="tabs" role="tablist" aria-label="Studio modes">
+          <button
+            class="tab is-active"
+            id="train-tab"
+            role="tab"
+            aria-selected="true"
+            aria-controls="train-panel"
+            data-tab="train"
+          >
+            <span class="tab-index">01</span> Train
+          </button>
+          <button
+            class="tab"
+            id="recognize-tab"
+            role="tab"
+            aria-selected="false"
+            aria-controls="recognize-panel"
+            data-tab="recognize"
+            tabindex="-1"
+          >
+            <span class="tab-index">02</span> Recognize
+          </button>
+        </nav>
+
+        <div class="model-pill" id="model-pill">
+          <span class="status-dot"></span>
+          <span id="model-pill-text">Loading model</span>
+        </div>
+      </header>
+
+      <main class="studio">
+        <section
+          class="control-pane tab-panel"
+          id="train-panel"
+          role="tabpanel"
+          aria-labelledby="train-tab"
+        >
+          <div class="pane-intro">
+            <p class="eyebrow">Learning room</p>
+            <h1>Teach it to <em>see.</em></h1>
+            <p>
+              Create a fresh network, then watch 3,823 optical examples and
+              freehand variations shape its neurons in real time.
+            </p>
+          </div>
+
+          <div class="settings-card">
+            <div class="field-group">
+              <label for="architecture">Network shape</label>
+              <div class="select-wrap">
+                <select id="architecture">
+                  <option value="24,16">64 · 24 · 16 · 10 — Tiny</option>
+                  <option value="32,16" selected>64 · 32 · 16 · 10 — Compact</option>
+                  <option value="48,24">64 · 48 · 24 · 10 — Wide</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="field-group">
+                <label for="epochs">Epochs <output id="epochs-value">25</output></label>
+                <input id="epochs" type="range" min="4" max="200" value="25" step="1" />
+              </div>
+              <div class="field-group">
+                <label for="learning-rate">Learning rate</label>
+                <div class="select-wrap">
+                  <select id="learning-rate">
+                    <option value="0.03">0.03 — Gentle</option>
+                    <option value="0.05" selected>0.05 — Balanced</option>
+                    <option value="0.08">0.08 — Fast</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button class="button button-secondary" id="create-model">
+                <span class="button-icon">＋</span> New model
+              </button>
+              <button class="button button-primary" id="train-model">
+                <span id="train-button-label">Start training</span>
+                <span class="arrow">↗</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="training-status" aria-live="polite">
+            <div class="status-copy">
+              <div>
+                <span class="status-label">Status</span>
+                <strong id="training-message">Pretrained model is ready</strong>
+              </div>
+              <span class="epoch-counter" id="epoch-counter">Ready</span>
+            </div>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-fill" id="training-progress"></div>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <article class="metric-card">
+              <span>Accuracy</span>
+              <strong id="accuracy-metric">—</strong>
+              <small>held-out samples</small>
+            </article>
+            <article class="metric-card">
+              <span>Loss</span>
+              <strong id="loss-metric">—</strong>
+              <small>cross-entropy</small>
+            </article>
+            <article class="metric-card chart-card">
+              <span>Learning curve</span>
+              <canvas id="loss-chart" aria-label="Training loss chart"></canvas>
+              <small id="chart-caption">Waiting for training</small>
+            </article>
+          </div>
+        </section>
+
+        <section
+          class="control-pane tab-panel recognize-pane"
+          id="recognize-panel"
+          role="tabpanel"
+          aria-labelledby="recognize-tab"
+          hidden
+        >
+          <div class="pane-intro">
+            <p class="eyebrow">Recognition room</p>
+            <h1>Leave your <em>mark.</em></h1>
+            <p>
+              Draw one digit in a single or multiple strokes. The prediction
+              and neural activations update as you draw.
+            </p>
+          </div>
+
+          <div class="recognizer-grid">
+            <div class="drawing-card">
+              <div class="drawing-header">
+                <span>Draw here</span>
+                <span class="live-label"><i></i> Live</span>
+              </div>
+              <div class="drawing-frame">
+                <canvas
+                  id="drawing-canvas"
+                  width="280"
+                  height="280"
+                  aria-label="Drawing canvas for a handwritten digit"
+                ></canvas>
+                <div class="draw-hint" id="draw-hint" aria-hidden="true">
+                  <span>Draw a digit</span>
+                  <small>0 — 9</small>
+                </div>
+              </div>
+              <div class="drawing-actions">
+                <button class="text-button" id="clear-drawing">Clear canvas</button>
+                <button class="text-button accent" id="sample-digit">Try an example</button>
+              </div>
+            </div>
+
+            <div class="prediction-card">
+              <span class="status-label">I think it’s a</span>
+              <div class="prediction-number" id="prediction-number">—</div>
+              <div class="confidence-line">
+                <span>Confidence</span>
+                <strong id="confidence-value">Draw to begin</strong>
+              </div>
+              <div class="confidence-track">
+                <span id="confidence-fill"></span>
+              </div>
+              <div class="probability-list" id="probability-list" aria-label="Digit probabilities"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="network-pane" aria-label="Neural network visualization">
+          <div class="network-heading">
+            <div>
+              <p class="eyebrow" id="network-eyebrow">Live training signal</p>
+              <h2>Inside the network</h2>
+            </div>
+            <div class="network-legend">
+              <span><i class="legend-low"></i> quiet</span>
+              <span><i class="legend-high"></i> active</span>
+            </div>
+          </div>
+
+          <div class="network-frame">
+            <canvas id="network-canvas" aria-label="Neural network activations"></canvas>
+            <div class="network-empty" id="network-empty">
+              <span class="empty-pulse"></span>
+              <strong>Preparing the network</strong>
+              <small>Loading weights and activations…</small>
+            </div>
+          </div>
+
+          <div class="layer-summary" id="layer-summary">
+            <span><b>64</b> pixels</span>
+            <span class="summary-arrow">→</span>
+            <span><b>128</b> hidden</span>
+            <span class="summary-arrow">→</span>
+            <span><b>64</b> hidden</span>
+            <span class="summary-arrow">→</span>
+            <span><b>10</b> digits</span>
+          </div>
+
+          <div class="network-note">
+            <span class="note-glyph">✦</span>
+            <p id="network-note-copy">
+              Brighter neurons are responding more strongly to the current training example.
+            </p>
+          </div>
+        </aside>
+      </main>
+
+      <footer>
+        <span>Glyph / Neural Digit Studio</span>
+        <span>64 inputs · sigmoid layers · softmax output</span>
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
