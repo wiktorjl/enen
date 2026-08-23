@@ -14,7 +14,7 @@ COPY webapp/index.html webapp/styles.css webapp/app.js ./webapp/
 RUN mkdir -p webapp/assets \
     && cp datasets/optdigits.tra webapp/assets/optdigits.tra \
     && cp datasets/optdigits.tes webapp/assets/optdigits.tes \
-    && make web-check
+    && make NODE="$(command -v node)" web-check
 
 
 # Nginx runs as an unprivileged user and listens above the privileged port

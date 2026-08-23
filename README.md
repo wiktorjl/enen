@@ -17,9 +17,77 @@ make all
 make check
 ```
 
-Executables are written to `build/`. `make check` runs the core tests and also
-reconverts the raw UCI files, byte-for-byte comparing the results with the
-committed normalized CSV splits.
+Executables are written to `build/`. `make check` runs the core tests, drives
+the browser-facing C API through a deterministic 25-epoch accuracy gate, and
+reconverts the raw UCI files for byte-for-byte comparison with the committed
+normalized splits.
+
+## Browser app (C / WebAssembly)
+
+The app in `webapp/` trains and uses `src/nn.c`; it does not contain a second
+neural-network implementation in JavaScript. Emscripten compiles the C core
+and its browser facade to `webapp/enen.js` and `webapp/enen.wasm`:
+
+```bash
+make web
+python3 -m http.server 8080 --directory webapp
+```
+
+Then open <http://localhost:8080>. `make web` requires Emscripten. The generated
+artifacts are included so the checked-out app can be served directly; rebuild
+them after changing `nn.c`, `dataset.c`, or `web_api.c`.
+
+Do not open `webapp/index.html` directly from the filesystem. A `file://` tab
+cannot fetch the Wasm module or datasets and will leave the controls disabled.
+
+`make web-check` rebuilds the artifacts, instantiates the generated Wasm through
+its Emscripten loader, trains it for the production 25 epochs, and enforces the
+digit-accuracy gate. It requires Node.js in addition to Emscripten.
+`make browser-check` serves the complete page in an installed Chromium-based
+browser and verifies startup, training, and recognition end to end.
+
+The left side contains Train and Recognize tabs; a narrower network monitor on
+the right remains visible in both modes. Train exposes several C network shapes,
+epoch counts, and learning rates, with the tested `64 → 128 → 64 → 10`,
+25-epoch, `0.05` recipe as the default. During training the monitor visualizes
+the real sample, activations, and weights copied from C at a readable cadence.
+During recognition it shows which nodes activate for the centered drawing. The
+**View nn.c** button opens the complete canonical network implementation in a
+source dialog and does not show unrelated files.
+The app fits the official training split plus normalized drawing variations, evaluates the
+official test split only after training, and runs a separate held-out drawing
+check before enabling the canvas. The exact in-memory C model that completes
+training handles every subsequent prediction. After a model passes those gates,
+its exact C serialization is stored in IndexedDB and restored on the next visit.
+That saved model is local to the browser profile and site origin; it is not tied
+to a server-side user account or shared with another browser, profile, or port.
+
+## Docker / Traefik deployment
+
+The production image rebuilds the C/WebAssembly artifacts with Emscripten, then
+copies only the required static files into an unprivileged Nginx image listening
+on port 8080. The supplied Compose stack attaches its single runtime container
+only to the existing external `proxy` network and publishes no host port.
+
+On the VPS, verify that Traefik's network exists and start the stack:
+
+```bash
+docker network inspect proxy
+docker compose up -d --build
+docker compose ps
+```
+
+The configured URL is <https://soto.wiktor.io/enen/>. Traefik first redirects
+the exact `/enen` path to `/enen/`, then strips the prefix before forwarding to
+Nginx. The trailing-slash redirect is required because the browser app uses
+relative CSS, JavaScript, Wasm, data, and source URLs. The router uses the
+`websecure` entrypoint and `letsencrypt` certificate resolver and assumes that
+HTTP-to-HTTPS redirection is already handled by the VPS's Traefik configuration.
+
+No server volume is required: validated models remain in each visitor's browser
+profile through IndexedDB. To use a registry later, replace `image: enen:latest`
+in `compose.yaml` with the registry image and remove or omit the `build` block on
+the VPS.
 
 ## Train and evaluate
 
@@ -141,6 +209,10 @@ src/accuracy.c                     repeated-run statistics
 src/gym.c                          validation-based hyperparameter comparison
 src/convert_optdigits.c            raw UCI to normalized CSV conversion
 tests/test_core.c                  dataset, softmax, training, and model tests
+src/web_api.c, src/web_api.h       Emscripten-safe training/inference facade
+tests/test_web_api.c               deterministic digit-accuracy API gate
+tests/test_wasm.mjs                 generated Wasm runtime and accuracy gate
+webapp/                            minimal C/Wasm training and drawing UI
 ```
 
 See [docs/DIGITS.md](docs/DIGITS.md) for the mathematical walkthrough and the

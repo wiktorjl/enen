@@ -1,0 +1,17 @@
+.git
+.agents
+.codex
+.vscode
+.clangd
+build
+conf
+docs
+models
+datasets/UCI_digits_train.csv
+datasets/UCI_digits_test.csv
+webapp/enen.js
+webapp/enen.wasm
+webapp/assets/nn.c
+webapp/assets/optdigits.tra
+webapp/assets/optdigits.tes
+webapp/assets/digits.model
