@@ -5,240 +5,358 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Train a tiny neural network, draw a digit, and watch its neurons respond."
+      content="Train and inspect a C neural network in WebAssembly, then use it to recognize handwritten digits."
     />
-    <title>Glyph — Neural Digit Studio</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>enen — neural network laboratory</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css?v=20260821.5" />
   </head>
   <body>
-    <div class="page-shell">
-      <header class="topbar">
-        <a class="brand" href="#" aria-label="Glyph home">
-          <span class="brand-mark" aria-hidden="true">
-            <span></span><span></span><span></span><span></span>
-          </span>
-          <span>Glyph</span>
-        </a>
-
-        <nav class="tabs" role="tablist" aria-label="Studio modes">
-          <button
-            class="tab is-active"
-            id="train-tab"
-            role="tab"
-            aria-selected="true"
-            aria-controls="train-panel"
-            data-tab="train"
-          >
-            <span class="tab-index">01</span> Train
-          </button>
-          <button
-            class="tab"
-            id="recognize-tab"
-            role="tab"
-            aria-selected="false"
-            aria-controls="recognize-panel"
-            data-tab="recognize"
-            tabindex="-1"
-          >
-            <span class="tab-index">02</span> Recognize
-          </button>
-        </nav>
-
-        <div class="model-pill" id="model-pill">
-          <span class="status-dot"></span>
-          <span id="model-pill-text">Loading model</span>
+    <div class="app-shell">
+      <header class="lab-header">
+        <a class="brand" href="#train-panel" aria-label="enen neural network laboratory">enen</a>
+        <div class="runtime-readout">
+          <span>runtime</span>
+          <strong id="runtime-status">Loading Wasm</strong>
         </div>
+        <button
+          id="source-button"
+          type="button"
+          aria-haspopup="dialog"
+          aria-controls="source-dialog"
+        >
+          View nn.c
+        </button>
       </header>
 
-      <main class="studio">
-        <section
-          class="control-pane tab-panel"
-          id="train-panel"
-          role="tabpanel"
-          aria-labelledby="train-tab"
-        >
-          <div class="pane-intro">
-            <p class="eyebrow">Learning room</p>
-            <h1>Teach it to <em>see.</em></h1>
-            <p>
-              Create a fresh network, then watch 3,823 optical examples and
-              freehand variations shape its neurons in real time.
-            </p>
-          </div>
+      <main class="lab-layout">
+        <section class="control-panel" aria-label="Model controls">
+          <nav class="workflow-tabs" role="tablist" aria-label="Laboratory mode">
+            <button
+              class="tab is-active"
+              id="train-tab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="train-panel"
+              data-tab="train"
+            >
+              Train
+            </button>
+            <button
+              class="tab"
+              id="recognize-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="recognition-panel"
+              data-tab="recognize"
+              tabindex="-1"
+            >
+              Recognize
+            </button>
+          </nav>
 
-          <div class="settings-card">
-            <div class="field-group">
-              <label for="architecture">Network shape</label>
-              <div class="select-wrap">
-                <select id="architecture">
-                  <option value="24,16">64 · 24 · 16 · 10 — Tiny</option>
-                  <option value="32,16" selected>64 · 32 · 16 · 10 — Compact</option>
-                  <option value="48,24">64 · 48 · 24 · 10 — Wide</option>
-                </select>
-              </div>
+          <section
+            class="tab-panel"
+            id="train-panel"
+            role="tabpanel"
+            aria-labelledby="train-tab"
+          >
+            <div id="setup-view" class="setup-view">
+              <header class="panel-heading">
+                <p class="section-code">TRAIN / CONFIGURATION</p>
+                <h1>Train model</h1>
+                <p>Configure the C network and run training in this browser.</p>
+              </header>
+
+              <form id="model-options" class="options-form">
+                <fieldset>
+                  <legend>Model parameters</legend>
+
+                  <div class="field-group field-wide">
+                    <label for="architecture">Network architecture</label>
+                    <select id="architecture" name="architecture" aria-describedby="architecture-note">
+                      <option value="24,16">64 → 24 → 16 → 10 · Tiny experiment</option>
+                      <option value="32,16">64 → 32 → 16 → 10 · Compact experiment</option>
+                      <option value="48,24">64 → 48 → 24 → 10 · Wide experiment</option>
+                      <option value="128,64" selected>64 → 128 → 64 → 10 · Reference (recommended)</option>
+                    </select>
+                    <small id="architecture-note">17,226 trainable parameters</small>
+                  </div>
+
+                  <div class="field-group">
+                    <label for="epochs">
+                      Epochs <output id="epochs-value" for="epochs">25</output>
+                    </label>
+                    <input
+                      id="epochs"
+                      name="epochs"
+                      type="range"
+                      min="10"
+                      max="100"
+                      value="25"
+                      step="1"
+                      aria-describedby="epochs-help"
+                    />
+                    <small id="epochs-help">Complete passes over the training set.</small>
+                  </div>
+
+                  <div class="field-group">
+                    <label for="learning-rate">Learning rate</label>
+                    <select
+                      id="learning-rate"
+                      name="learning-rate"
+                      aria-describedby="learning-rate-help"
+                    >
+                      <option value="0.03">0.03 · Gentle</option>
+                      <option value="0.05" selected>0.05 · Balanced</option>
+                      <option value="0.08">0.08 · Fast</option>
+                    </select>
+                    <small id="learning-rate-help">Weight update magnitude.</small>
+                  </div>
+                </fieldset>
+
+                <p class="method-note">
+                  Training, inspection, and recognition use one C model compiled to WebAssembly.
+                </p>
+
+                <p id="training-status" class="status-copy" aria-live="polite">
+                  Loading the C runtime and preparing handwriting examples…
+                </p>
+                <p id="startup-fallback" class="startup-error" role="alert" hidden></p>
+                <noscript>
+                  <p class="startup-error" role="alert">
+                    JavaScript is required to load the C / WebAssembly model.
+                  </p>
+                </noscript>
+
+                <div class="setup-actions">
+                  <button id="new-model-button" type="button" disabled>Reset weights</button>
+                  <button id="train-button" class="primary-button" type="submit" disabled>
+                    Preparing app…
+                  </button>
+                </div>
+              </form>
             </div>
 
-            <div class="settings-row">
-              <div class="field-group">
-                <label for="epochs">Epochs <output id="epochs-value">25</output></label>
-                <input id="epochs" type="range" min="4" max="200" value="25" step="1" />
+            <div id="training-stage" class="training-stage" hidden>
+              <header class="stage-heading">
+                <div>
+                  <p class="section-code">TRAIN / RUN</p>
+                  <h2 id="training-stage-title" tabindex="-1">Training state</h2>
+                </div>
+                <div class="stage-status">
+                  <span id="model-status">Fresh weights</span>
+                  <strong id="epoch-label">0 / 25 epochs</strong>
+                </div>
+              </header>
+
+              <div class="training-readout">
+                <div class="progress-copy">
+                  <strong id="visualization-status">Starting the first training batch…</strong>
+                  <span id="layer-summary">64 → 128 → 64 → 10</span>
+                </div>
+                <progress
+                  id="training-progress"
+                  max="25"
+                  value="0"
+                  aria-labelledby="visualization-status epoch-label"
+                >
+                  0 of 25 epochs
+                </progress>
               </div>
-              <div class="field-group">
-                <label for="learning-rate">Learning rate</label>
-                <div class="select-wrap">
-                  <select id="learning-rate">
-                    <option value="0.03">0.03 — Gentle</option>
-                    <option value="0.05" selected>0.05 — Balanced</option>
-                    <option value="0.08">0.08 — Fast</option>
-                  </select>
+
+              <dl class="metrics">
+                <div>
+                  <dt>Held-out UCI test</dt>
+                  <dd id="test-accuracy">—</dd>
+                </div>
+                <div>
+                  <dt>Cross-entropy</dt>
+                  <dd id="test-loss">—</dd>
+                </div>
+                <div>
+                  <dt>Drawing check</dt>
+                  <dd id="drawing-accuracy">—</dd>
+                </div>
+              </dl>
+
+              <div class="stage-actions">
+                <button id="pause-animation-button" type="button" aria-pressed="false">
+                  Pause animation
+                </button>
+                <button id="skip-animation-button" type="button">Finish without animation</button>
+                <div id="completion-actions" class="completion-actions" hidden>
+                  <button id="configure-again-button" type="button">Adjust model</button>
+                  <button id="go-recognize-button" class="primary-button" type="button">
+                    Recognize a digit
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div class="button-row">
-              <button class="button button-secondary" id="create-model">
-                <span class="button-icon">＋</span> New model
-              </button>
-              <button class="button button-primary" id="train-model">
-                <span id="train-button-label">Start training</span>
-                <span class="arrow">↗</span>
-              </button>
-            </div>
-          </div>
+            <p id="training-announcement" class="visually-hidden" aria-live="polite"></p>
+          </section>
 
-          <div class="training-status" aria-live="polite">
-            <div class="status-copy">
-              <div>
-                <span class="status-label">Status</span>
-                <strong id="training-message">Pretrained model is ready</strong>
-              </div>
-              <span class="epoch-counter" id="epoch-counter">Ready</span>
-            </div>
-            <div class="progress-track" aria-hidden="true">
-              <div class="progress-fill" id="training-progress"></div>
-            </div>
-          </div>
+          <section
+            class="tab-panel recognition-panel is-disabled"
+            id="recognition-panel"
+            role="tabpanel"
+            aria-labelledby="recognize-tab"
+            aria-disabled="true"
+            hidden
+          >
+            <header class="panel-heading">
+              <p class="section-code">RECOGNIZE / INFERENCE</p>
+              <h1>Recognize digit</h1>
+              <p>The centered drawing is evaluated by the trained C model.</p>
+            </header>
 
-          <div class="metrics-grid">
-            <article class="metric-card">
-              <span>Accuracy</span>
-              <strong id="accuracy-metric">—</strong>
-              <small>held-out samples</small>
-            </article>
-            <article class="metric-card">
-              <span>Loss</span>
-              <strong id="loss-metric">—</strong>
-              <small>cross-entropy</small>
-            </article>
-            <article class="metric-card chart-card">
-              <span>Learning curve</span>
-              <canvas id="loss-chart" aria-label="Training loss chart"></canvas>
-              <small id="chart-caption">Waiting for training</small>
-            </article>
-          </div>
-        </section>
-
-        <section
-          class="control-pane tab-panel recognize-pane"
-          id="recognize-panel"
-          role="tabpanel"
-          aria-labelledby="recognize-tab"
-          hidden
-        >
-          <div class="pane-intro">
-            <p class="eyebrow">Recognition room</p>
-            <h1>Leave your <em>mark.</em></h1>
-            <p>
-              Draw one digit in a single or multiple strokes. The prediction
-              and neural activations update as you draw.
-            </p>
-          </div>
-
-          <div class="recognizer-grid">
-            <div class="drawing-card">
-              <div class="drawing-header">
-                <span>Draw here</span>
-                <span class="live-label"><i></i> Live</span>
-              </div>
-              <div class="drawing-frame">
-                <canvas
-                  id="drawing-canvas"
-                  width="280"
-                  height="280"
-                  aria-label="Drawing canvas for a handwritten digit"
-                ></canvas>
-                <div class="draw-hint" id="draw-hint" aria-hidden="true">
-                  <span>Draw a digit</span>
-                  <small>0 — 9</small>
+            <div class="recognizer">
+              <section class="drawing-card" aria-labelledby="drawing-card-title">
+                <div class="card-heading">
+                  <h2 id="drawing-card-title">Input</h2>
+                  <span id="recognition-model-status">Train first</span>
                 </div>
-              </div>
-              <div class="drawing-actions">
-                <button class="text-button" id="clear-drawing">Clear canvas</button>
-                <button class="text-button accent" id="sample-digit">Try an example</button>
-              </div>
-            </div>
+                <div class="canvas-shell">
+                  <canvas
+                    id="drawing-canvas"
+                    width="280"
+                    height="280"
+                    aria-label="Draw one digit from zero through nine"
+                    aria-disabled="true"
+                  >
+                    Use a mouse, pen, or touch screen to draw a digit.
+                  </canvas>
+                  <p id="canvas-message">Recognition unlocks after training passes its checks.</p>
+                </div>
+                <div class="canvas-actions">
+                  <div class="drawing-tools" role="group" aria-label="Drawing tool">
+                    <button
+                      id="draw-tool-button"
+                      type="button"
+                      aria-pressed="true"
+                      aria-controls="drawing-canvas"
+                      disabled
+                    >
+                      Draw
+                    </button>
+                    <button
+                      id="eraser-tool-button"
+                      type="button"
+                      aria-pressed="false"
+                      aria-controls="drawing-canvas"
+                      disabled
+                    >
+                      Eraser
+                    </button>
+                  </div>
+                  <div class="canvas-commands">
+                    <button id="clear-button" type="button" disabled>Clear</button>
+                    <button id="example-button" type="button" disabled>Draw example</button>
+                  </div>
+                </div>
+              </section>
 
-            <div class="prediction-card">
-              <span class="status-label">I think it’s a</span>
-              <div class="prediction-number" id="prediction-number">—</div>
-              <div class="confidence-line">
-                <span>Confidence</span>
-                <strong id="confidence-value">Draw to begin</strong>
-              </div>
-              <div class="confidence-track">
-                <span id="confidence-fill"></span>
-              </div>
-              <div class="probability-list" id="probability-list" aria-label="Digit probabilities"></div>
+              <section class="prediction-card" aria-labelledby="prediction-title">
+                <h2 id="prediction-title">Prediction</h2>
+                <output id="prediction-digit">—</output>
+                <p id="prediction-confidence">Train the model first.</p>
+                <div id="probabilities" class="probabilities" aria-label="Probability by digit"></div>
+                <p id="prediction-announcement" class="visually-hidden" aria-live="polite"></p>
+              </section>
             </div>
-          </div>
+          </section>
         </section>
 
-        <aside class="network-pane" aria-label="Neural network visualization">
-          <div class="network-heading">
+        <aside class="network-panel" aria-labelledby="network-panel-title">
+          <header class="network-panel-header">
             <div>
-              <p class="eyebrow" id="network-eyebrow">Live training signal</p>
-              <h2>Inside the network</h2>
+              <p class="section-code">LIVE MODEL</p>
+              <h2 id="network-panel-title">Network monitor</h2>
             </div>
-            <div class="network-legend">
-              <span><i class="legend-low"></i> quiet</span>
-              <span><i class="legend-high"></i> active</span>
-            </div>
+            <span id="network-status">Waiting for C runtime</span>
+          </header>
+
+          <figure class="network-sample">
+            <canvas
+              id="network-sample-canvas"
+              width="96"
+              height="96"
+              role="img"
+              aria-label="Current normalized network input"
+              aria-describedby="network-sample-caption"
+            >
+              Current normalized 8 by 8 network input.
+            </canvas>
+            <figcaption>
+              <span>Current sample</span>
+              <strong id="network-sample-label">—</strong>
+              <small id="network-sample-caption">No sample inspected</small>
+            </figcaption>
+          </figure>
+
+          <canvas
+            id="network-canvas"
+            width="620"
+            height="520"
+            role="img"
+            aria-label="Neural network activation monitor"
+            aria-describedby="network-legend"
+          >
+            Neural network nodes, activations, and weighted connections.
+          </canvas>
+
+          <div class="network-legend" id="network-legend">
+            <span><i class="weight-positive" aria-hidden="true">+</i> positive weight</span>
+            <span><i class="weight-negative" aria-hidden="true">−</i> negative weight</span>
+            <span>Node fill indicates activation.</span>
           </div>
 
-          <div class="network-frame">
-            <canvas id="network-canvas" aria-label="Neural network activations"></canvas>
-            <div class="network-empty" id="network-empty">
-              <span class="empty-pulse"></span>
-              <strong>Preparing the network</strong>
-              <small>Loading weights and activations…</small>
-            </div>
-          </div>
-
-          <div class="layer-summary" id="layer-summary">
-            <span><b>64</b> pixels</span>
-            <span class="summary-arrow">→</span>
-            <span><b>128</b> hidden</span>
-            <span class="summary-arrow">→</span>
-            <span><b>64</b> hidden</span>
-            <span class="summary-arrow">→</span>
-            <span><b>10</b> digits</span>
-          </div>
-
-          <div class="network-note">
-            <span class="note-glyph">✦</span>
-            <p id="network-note-copy">
-              Brighter neurons are responding more strongly to the current training example.
-            </p>
-          </div>
+          <footer class="network-panel-footer">
+            <span id="network-shape">64 → 128 → 64 → 10</span>
+            <span id="storage-status">Model lives in this browser</span>
+          </footer>
         </aside>
       </main>
-
-      <footer>
-        <span>Glyph / Neural Digit Studio</span>
-        <span>64 inputs · sigmoid layers · softmax output</span>
-      </footer>
     </div>
 
-    <script src="app.js"></script>
+    <dialog id="source-dialog" aria-labelledby="source-dialog-title">
+      <div class="source-window">
+        <header class="source-titlebar">
+          <strong id="source-dialog-title">NN.C — C SOURCE</strong>
+          <form method="dialog">
+            <button id="source-close-button" type="submit" aria-label="Close source viewer">
+              Close
+            </button>
+          </form>
+        </header>
+        <div class="source-menubar" aria-hidden="true">
+          File&nbsp;&nbsp; Edit&nbsp;&nbsp; Search&nbsp;&nbsp; Run&nbsp;&nbsp; Compile&nbsp;&nbsp; Debug
+        </div>
+        <pre class="source-view" tabindex="0" aria-label="Formatted nn.c source code"><code id="source-code">Loading nn.c…</code></pre>
+        <footer class="source-footer">
+          <span id="source-status" aria-live="polite"></span>
+          <a href="assets/nn.c" target="_blank" rel="noreferrer">Open raw nn.c</a>
+        </footer>
+      </div>
+    </dialog>
+
+    <script src="enen.js?v=20260821.5"></script>
+    <script src="app.js?v=20260821.5"></script>
+    <script>
+      window.setTimeout(() => {
+        if (window.__enenAppStarted) return;
+        const message = document.querySelector("#startup-fallback");
+        const status = document.querySelector("#runtime-status");
+        if (message) {
+          message.hidden = false;
+          message.textContent =
+            "The interface script did not start. Reload the page or check the browser console.";
+        }
+        if (status) status.textContent = "Load failed";
+      }, 2000);
+    </script>
   </body>
 </html>
