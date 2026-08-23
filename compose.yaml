@@ -1,0 +1,51 @@
+services:
+  enen:
+    image: enen:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=proxy'
+
+      # Canonicalize the bare mount path before StripPrefix. Keeping this on a
+      # separate, higher-priority router prevents relative assets resolving at
+      # the host root when someone visits /enen without the trailing slash.
+      - 'traefik.http.routers.enen-slash.rule=Host(`soto.wiktor.io`) && Path(`/enen`)'
+      - 'traefik.http.routers.enen-slash.entrypoints=websecure'
+      - 'traefik.http.routers.enen-slash.tls=true'
+      - 'traefik.http.routers.enen-slash.tls.certresolver=letsencrypt'
+      - 'traefik.http.routers.enen-slash.priority=200'
+      - 'traefik.http.routers.enen-slash.middlewares=enen-add-slash'
+      - 'traefik.http.routers.enen-slash.service=noop@internal'
+      # The router already matches only the exact path, so no end anchor is
+      # needed (and this avoids Compose dollar-sign interpolation).
+      - 'traefik.http.middlewares.enen-add-slash.redirectregex.regex=^https://soto\.wiktor\.io/enen'
+      - 'traefik.http.middlewares.enen-add-slash.redirectregex.replacement=https://soto.wiktor.io/enen/'
+      - 'traefik.http.middlewares.enen-add-slash.redirectregex.permanent=true'
+
+      - 'traefik.http.routers.enen.rule=Host(`soto.wiktor.io`) && PathPrefix(`/enen/`)'
+      - 'traefik.http.routers.enen.entrypoints=websecure'
+      - 'traefik.http.routers.enen.tls=true'
+      - 'traefik.http.routers.enen.tls.certresolver=letsencrypt'
+      - 'traefik.http.routers.enen.priority=100'
+      - 'traefik.http.routers.enen.service=enen'
+      - 'traefik.http.routers.enen.middlewares=enen-strip'
+      - 'traefik.http.services.enen.loadbalancer.server.port=8080'
+      - 'traefik.http.middlewares.enen-strip.stripprefix.prefixes=/enen'
+
+networks:
+  proxy:
+    external: true
