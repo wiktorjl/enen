@@ -160,6 +160,10 @@ int main(void) {
           "training dataset is valid");
     CHECK(check_dataset(&test, 1797) == EXIT_SUCCESS,
           "test dataset is valid");
+    CHECK(load_optdigits_dataset("datasets/optdigits.tes", &test) == 0,
+          "loading into an initialized dataset safely replaces its contents");
+    CHECK(check_dataset(&test, 1797) == EXIT_SUCCESS,
+          "replacement dataset remains valid");
     CHECK(check_network() == EXIT_SUCCESS, "network behavior is valid");
     CHECK(check_rejected_inputs() == EXIT_SUCCESS,
           "malformed inputs are rejected safely");

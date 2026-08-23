@@ -52,7 +52,8 @@ static int grow_dataset(Dataset *dataset, int *capacity) {
 }
 
 static int parse_row(char *line, double *inputs, double *target,
-                     int input_size, int num_classes, const char *filename,
+                     int input_size, int num_classes, double feature_max,
+                     int require_integer_features, const char *filename,
                      int line_number) {
     char *cursor = line;
 
@@ -61,9 +62,12 @@ static int parse_row(char *line, double *inputs, double *target,
         errno = 0;
         double value = strtod(cursor, &end);
         if (end == cursor || errno == ERANGE || !isfinite(value) ||
-            value < 0.0 || value > 1.0) {
+            value < 0.0 || value > feature_max ||
+            (require_integer_features && floor(value) != value)) {
             fprintf(stderr,
-                    "%s:%d: feature %d must be a number between 0 and 1\n",
+                    require_integer_features
+                        ? "%s:%d: feature %d must be an integer from 0 to 16\n"
+                        : "%s:%d: feature %d must be a number between 0 and 1\n",
                     filename, line_number, feature + 1);
             return -1;
         }
@@ -75,7 +79,7 @@ static int parse_row(char *line, double *inputs, double *target,
                     filename, line_number, feature + 1);
             return -1;
         }
-        inputs[feature] = value;
+        inputs[feature] = value / feature_max;
         cursor = end + 1;
     }
 
@@ -100,14 +104,19 @@ static int parse_row(char *line, double *inputs, double *target,
     return 0;
 }
 
-int load_dataset(const char *filename, int input_size, int num_classes,
-                 Dataset *dataset) {
+static int load_dataset_with_scale(const char *filename, int input_size,
+                                   int num_classes, double feature_max,
+                                   int require_integer_features,
+                                   Dataset *dataset) {
     if (!filename || !dataset || input_size <= 0 || num_classes < 2) {
         fprintf(stderr, "Invalid dataset arguments\n");
         return -1;
     }
 
-    clear_dataset(dataset);
+    /* Public loaders replace an existing initialized dataset. Callers must
+     * pass a zero-initialized Dataset on first use, as documented in the
+     * header. */
+    free_dataset(dataset);
     FILE *file = fopen(filename, "r");
     if (!file) {
         fprintf(stderr, "Failed to open dataset '%s': ", filename);
@@ -164,7 +173,8 @@ int load_dataset(const char *filename, int input_size, int num_classes,
             break;
         }
         if (parse_row(cursor, inputs, target, input_size, num_classes,
-                      filename, line_number) != 0) {
+                      feature_max, require_integer_features, filename,
+                      line_number) != 0) {
             free(inputs);
             free(target);
             status = -1;
@@ -192,4 +202,14 @@ int load_dataset(const char *filename, int input_size, int num_classes,
         free_dataset(dataset);
     }
     return status;
+}
+
+int load_dataset(const char *filename, int input_size, int num_classes,
+                 Dataset *dataset) {
+    return load_dataset_with_scale(filename, input_size, num_classes, 1.0, 0,
+                                   dataset);
+}
+
+int load_optdigits_dataset(const char *filename, Dataset *dataset) {
+    return load_dataset_with_scale(filename, 64, 10, 16.0, 1, dataset);
 }
