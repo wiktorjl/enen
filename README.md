@@ -17,10 +17,11 @@ actual training examples, activations, and weights.
 
 ![Training the C neural network in the browser, with epoch progress and live layer activations](docs/screenshots/training.png)
 
-**Inference:** a trained model predicts a digit from the drawing canvas. The
-interface shows class probabilities alongside the network's response.
+**Inference:** a freehand seven drawn with pointer strokes is recognized by the
+trained C model. The interface shows class probabilities alongside the network's
+response.
 
-![Inference with the trained C neural network, showing a drawn digit, its predicted class, probabilities, and network activations](docs/screenshots/inference.png)
+![The trained C neural network recognizing a freehand seven, with its predicted class, probabilities, and network activations](docs/screenshots/inference.png)
 
 The prediction card averages C predictions over nearby input variations. The
 network monitor shows a direct forward pass of the centered input, so the two
