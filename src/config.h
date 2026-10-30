@@ -12,7 +12,7 @@ typedef struct {
     char test_dataset_path[256];
 } Config;
 
-Config* load_config(const char* filename);
-void free_config(Config* config);
+Config *load_config(const char *filename);
+void free_config(Config *config);
 
 #endif // CONFIG_H

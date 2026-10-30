@@ -336,6 +336,9 @@ const browser = spawn(findBrowser(), [
   "--headless=new",
   "--no-sandbox",
   "--disable-gpu",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
   "--remote-debugging-pipe",
   `--user-data-dir=${profile}`,
   "about:blank",
@@ -358,6 +361,12 @@ try {
   });
   await devtools.call("Runtime.enable", {}, sessionId);
   await devtools.call("Page.enable", {}, sessionId);
+  // Exercise animated canvases as a focused foreground page. Headless Chrome
+  // can otherwise throttle timers and animation frames independently.
+  await devtools.call("Page.bringToFront", {}, sessionId);
+  await devtools.call("Emulation.setFocusEmulationEnabled", {
+    enabled: true,
+  }, sessionId);
   await devtools.call("Emulation.setDeviceMetricsOverride", {
     width: 1440,
     height: 900,

@@ -1,7 +1,14 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include <limits.h>
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "config.h"
 #include "dataset.h"
@@ -77,6 +84,106 @@ static int check_dataset(const Dataset *dataset, int expected_samples) {
     return EXIT_SUCCESS;
 }
 
+static double example_loss(Net *net, const double *input, int label) {
+    forward_pass(input, net);
+    return -log(net->activations[net->num_layers - 1][label]);
+}
+
+/* A numerical derivative is independent of backpropagation's implementation.
+ * Check every weight and bias, including two hidden layers so that using an
+ * already-updated weight during the backward pass would fail this test. */
+static int check_gradients(void) {
+    int hidden_sizes[] = {4, 2};
+    Config config = {
+        .input_size = 3,
+        .output_size = 3,
+        .num_hidden_layers = 2,
+        .hidden_layer_sizes = hidden_sizes,
+    };
+    const double input[] = {0.15, 0.35, 0.55};
+    const double target[] = {0.0, 1.0, 0.0};
+    srand(17);
+    Net *net = create_net(&config);
+    CHECK(net != NULL, "gradient-check network is created");
+    Net *updated = clone_net(net);
+    CHECK(updated != NULL, "gradient-check network is cloned");
+    forward_pass(input, updated);
+    backward_pass(target, updated, 1.0);
+
+    const double step = 1e-5;
+    for (int layer = 0; layer < net->num_layers - 1; layer++) {
+        size_t weight_count = (size_t)net->layer_sizes[layer] *
+                              (size_t)net->layer_sizes[layer + 1];
+        for (int kind = 0; kind < 2; kind++) {
+            double *parameters = kind == 0 ? net->weights[layer] : net->biases[layer];
+            const double *after = kind == 0
+                ? updated->weights[layer]
+                : updated->biases[layer];
+            size_t count = kind == 0
+                ? weight_count
+                : (size_t)net->layer_sizes[layer + 1];
+            for (size_t index = 0; index < count; index++) {
+                double original = parameters[index];
+                parameters[index] = original + step;
+                double plus = example_loss(net, input, 1);
+                parameters[index] = original - step;
+                double minus = example_loss(net, input, 1);
+                parameters[index] = original;
+
+                double numerical_gradient = (plus - minus) / (2.0 * step);
+                double backward_gradient = original - after[index];
+                CHECK(fabs(numerical_gradient - backward_gradient) < 1e-7,
+                      "backpropagation matches the numerical loss derivative");
+            }
+        }
+    }
+    free_net(updated);
+    free_net(net);
+
+    config.num_hidden_layers = INT_MAX;
+    CHECK(create_net(&config) == NULL,
+          "invalid layer counts are rejected before addition or allocation");
+    return EXIT_SUCCESS;
+}
+
+static int check_failed_model_save(Net *net, const char *path) {
+    /* Restrict only the child: this deterministically simulates a late write
+     * failure without filling a disk or changing the parent's resource limits. */
+    pid_t child = fork();
+    CHECK(child >= 0, "checkpoint failure child is created");
+    if (child == 0) {
+        struct rlimit limit;
+        if (signal(SIGXFSZ, SIG_IGN) == SIG_ERR ||
+            getrlimit(RLIMIT_FSIZE, &limit) != 0) {
+            _exit(2);
+        }
+        limit.rlim_cur = 32;
+        if (setrlimit(RLIMIT_FSIZE, &limit) != 0) {
+            _exit(2);
+        }
+        _exit(save_net(net, path) == -1 ? 0 : 1);
+    }
+    int status;
+    CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+              WEXITSTATUS(status) == 0,
+          "the simulated checkpoint write fails cleanly");
+    Net *preserved = load_net(path);
+    CHECK(preserved != NULL, "the previous checkpoint survives a failed save");
+    for (int layer = 0; layer < net->num_layers - 1; layer++) {
+        size_t weights_bytes = sizeof(double) * (size_t)net->layer_sizes[layer] *
+                               (size_t)net->layer_sizes[layer + 1];
+        size_t biases_bytes = sizeof(double) *
+                              (size_t)net->layer_sizes[layer + 1];
+        CHECK(memcmp(net->weights[layer], preserved->weights[layer],
+                     weights_bytes) == 0 &&
+                  memcmp(net->biases[layer], preserved->biases[layer],
+                         biases_bytes) == 0,
+              "the previous checkpoint retains every parameter exactly");
+    }
+    free_net(preserved);
+    return EXIT_SUCCESS;
+}
+
 static int check_network(void) {
     int hidden_size = 6;
     Config config = {
@@ -120,6 +227,8 @@ static int check_network(void) {
     CHECK(after.correct == 3, "trained network classifies the toy set");
 
     CHECK(save_net(net, "build/test.model") == 0, "model save succeeds");
+    CHECK(check_failed_model_save(net, "build/test.model") == EXIT_SUCCESS,
+          "checkpoint replacement preserves the previous model on failure");
     Net *loaded = load_net("build/test.model");
     CHECK(loaded != NULL, "model load succeeds");
     CHECK(net_matches_dimensions(loaded, 2, 3),
@@ -165,6 +274,7 @@ int main(void) {
     CHECK(check_dataset(&test, 1797) == EXIT_SUCCESS,
           "replacement dataset remains valid");
     CHECK(check_network() == EXIT_SUCCESS, "network behavior is valid");
+    CHECK(check_gradients() == EXIT_SUCCESS, "backpropagation gradients are valid");
     CHECK(check_rejected_inputs() == EXIT_SUCCESS,
           "malformed inputs are rejected safely");
 

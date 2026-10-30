@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "atomic_file.h"
 #include "nn.h"
 
 /*
@@ -46,6 +47,27 @@ static double sigmoid(double value) {
 static double sigmoid_derivative(double activation) {
     /* For a = sigmoid(x), the derivative is a * (1 - a). */
     return activation * (1.0 - activation);
+}
+
+/* Convert logits to probabilities in place:
+ * p_j = exp(z_j - max(z)) / sum_k(exp(z_k - max(z))).
+ * Subtracting the maximum preserves the result and prevents exp overflow. */
+static void softmax(double *logits, size_t count) {
+    double largest_logit = logits[0];
+    for (size_t class_id = 1; class_id < count; class_id++) {
+        if (logits[class_id] > largest_logit) {
+            largest_logit = logits[class_id];
+        }
+    }
+
+    double total = 0.0;
+    for (size_t class_id = 0; class_id < count; class_id++) {
+        logits[class_id] = exp(logits[class_id] - largest_logit);
+        total += logits[class_id];
+    }
+    for (size_t class_id = 0; class_id < count; class_id++) {
+        logits[class_id] /= total;
+    }
 }
 
 static double xavier_weight(int fan_in, int fan_out) {
@@ -135,6 +157,7 @@ static Net *allocate_net(const int *layer_sizes, int num_layers) {
 
 Net *create_net(const Config *config) {
     if (!config || config->num_hidden_layers < 1 ||
+        config->num_hidden_layers > MAX_MODEL_LAYERS - 2 ||
         !config->hidden_layer_sizes) {
         fprintf(stderr, "Invalid network configuration\n");
         return NULL;
@@ -246,7 +269,7 @@ int net_matches_dimensions(const Net *net, int input_size, int num_classes) {
            net->layer_sizes[net->num_layers - 1] == num_classes;
 }
 
-/* --- Core algorithm (the "meat"): forward propagation ----------------- */
+/* --- Forward propagation ---------------------------------------------- */
 
 /*
  * Move one example from the input layer to the output layer.
@@ -256,8 +279,8 @@ int net_matches_dimensions(const Net *net, int input_size, int num_classes) {
  *     z_j = bias_j + sum_i(activation_i * weight_ij)
  *
  * Hidden layers store sigmoid(z_j). The output layer first stores the raw
- * scores (logits), then the final block converts all logits together into
- * class probabilities with softmax. The resulting activations sum to one.
+ * scores (logits), then softmax() converts them into one class distribution.
+ * The resulting output activations sum to one.
  */
 void forward_pass(const double *inputs, Net *net) {
     /* Layer zero is data, not a computed layer. */
@@ -266,45 +289,31 @@ void forward_pass(const double *inputs, Net *net) {
 
     int output_layer = net->num_layers - 1;
     for (int layer = 0; layer < output_layer; layer++) {
-        int current_size = net->layer_sizes[layer];
-        int next_size = net->layer_sizes[layer + 1];
-        for (int output = 0; output < next_size; output++) {
-            double sum = net->biases[layer][output];
-            for (int input = 0; input < current_size; input++) {
-                /* Matrix row input, column output: weight input -> output. */
-                sum += net->activations[layer][input] *
-                       net->weights[layer][input * next_size + output];
+        size_t source_count = (size_t)net->layer_sizes[layer];
+        size_t destination_count = (size_t)net->layer_sizes[layer + 1];
+        const double *source_activations = net->activations[layer];
+        double *destination_activations = net->activations[layer + 1];
+        const double *weights = net->weights[layer];
+
+        for (size_t destination = 0; destination < destination_count; destination++) {
+            double weighted_sum = net->biases[layer][destination];
+            for (size_t source = 0; source < source_count; source++) {
+                /* Cast sizes before multiplying: a dense matrix can contain
+                 * more entries than a signed int can index. */
+                size_t weight_index = source * destination_count + destination;
+                weighted_sum += source_activations[source] * weights[weight_index];
             }
-            net->activations[layer + 1][output] =
-                layer + 1 == output_layer ? sum : sigmoid(sum);
+            destination_activations[destination] = layer + 1 == output_layer
+                ? weighted_sum
+                : sigmoid(weighted_sum);
         }
     }
 
-    /*
-     * Softmax turns the output logits into one normalized class distribution.
-     * Subtracting the largest logit changes no probability but keeps exp()
-     * away from overflow.
-     */
-    int output_size = net->layer_sizes[output_layer];
-    double largest_logit = net->activations[output_layer][0];
-    for (int class_id = 1; class_id < output_size; class_id++) {
-        if (net->activations[output_layer][class_id] > largest_logit) {
-            largest_logit = net->activations[output_layer][class_id];
-        }
-    }
-    double total = 0.0;
-    for (int class_id = 0; class_id < output_size; class_id++) {
-        double probability =
-            exp(net->activations[output_layer][class_id] - largest_logit);
-        net->activations[output_layer][class_id] = probability;
-        total += probability;
-    }
-    for (int class_id = 0; class_id < output_size; class_id++) {
-        net->activations[output_layer][class_id] /= total;
-    }
+    softmax(net->activations[output_layer],
+            (size_t)net->layer_sizes[output_layer]);
 }
 
-/* --- Core algorithm (the "meat"): backpropagation --------------------- */
+/* --- Backpropagation --------------------------------------------------- */
 
 /*
  * Learn from the example most recently passed through forward_pass().
@@ -327,44 +336,52 @@ void backward_pass(const double *target, Net *net, double learning_rate) {
     int output_layer = net->num_layers - 1;
     int output_size = net->layer_sizes[output_layer];
 
-    /* For softmax plus cross-entropy, target - probability is the output delta. */
+    /* 1. Output deltas: the negative loss gradient with respect to each logit.
+     * Softmax plus cross-entropy simplifies this to target - probability. */
     for (int output = 0; output < output_size; output++) {
         net->deltas[output_layer][output] =
             target[output] - net->activations[output_layer][output];
     }
 
     /*
-     * Compute every hidden delta before changing any weight. The input layer is
-     * raw data, so there is no activation function there to differentiate.
+     * 2. Propagate the error backward using the ORIGINAL weights. Updating a
+     * weight here would change the gradients of earlier layers. The raw input
+     * layer has no parameters feeding into it, so it needs no delta.
      */
     for (int layer = output_layer - 1; layer >= 1; layer--) {
-        int current_size = net->layer_sizes[layer];
-        int next_size = net->layer_sizes[layer + 1];
-        for (int input = 0; input < current_size; input++) {
+        size_t source_count = (size_t)net->layer_sizes[layer];
+        size_t destination_count = (size_t)net->layer_sizes[layer + 1];
+        const double *weights = net->weights[layer];
+        const double *next_deltas = net->deltas[layer + 1];
+        for (size_t source = 0; source < source_count; source++) {
             double error = 0.0;
-            for (int output = 0; output < next_size; output++) {
-                error += net->deltas[layer + 1][output] *
-                         net->weights[layer][input * next_size + output];
+            for (size_t destination = 0; destination < destination_count; destination++) {
+                size_t weight_index = source * destination_count + destination;
+                error += next_deltas[destination] * weights[weight_index];
             }
-            net->deltas[layer][input] =
-                error * sigmoid_derivative(net->activations[layer][input]);
+            net->deltas[layer][source] =
+                error * sigmoid_derivative(net->activations[layer][source]);
         }
     }
 
-    /* Apply the parameter updates only after all backward signals are ready. */
+    /* 3. Apply SGD once all deltas are ready. Because delta is the NEGATIVE
+     * gradient, += moves parameters toward lower cross-entropy. */
     for (int layer = 0; layer < output_layer; layer++) {
-        int current_size = net->layer_sizes[layer];
-        int next_size = net->layer_sizes[layer + 1];
-        for (int input = 0; input < current_size; input++) {
-            for (int output = 0; output < next_size; output++) {
-                net->weights[layer][input * next_size + output] +=
-                    learning_rate * net->deltas[layer + 1][output] *
-                    net->activations[layer][input];
+        size_t source_count = (size_t)net->layer_sizes[layer];
+        size_t destination_count = (size_t)net->layer_sizes[layer + 1];
+        const double *source_activations = net->activations[layer];
+        const double *next_deltas = net->deltas[layer + 1];
+        double *weights = net->weights[layer];
+        for (size_t source = 0; source < source_count; source++) {
+            for (size_t destination = 0; destination < destination_count; destination++) {
+                size_t weight_index = source * destination_count + destination;
+                weights[weight_index] += learning_rate * next_deltas[destination] *
+                                         source_activations[source];
             }
         }
-        for (int output = 0; output < next_size; output++) {
-            net->biases[layer][output] +=
-                learning_rate * net->deltas[layer + 1][output];
+        for (size_t destination = 0; destination < destination_count; destination++) {
+            net->biases[layer][destination] +=
+                learning_rate * next_deltas[destination];
         }
     }
 }
@@ -414,7 +431,7 @@ int train_classifier(double **inputs, double **targets, int num_samples,
     }
 
     /*
-     * This loop is the training "meat": stochastic gradient descent. Shuffle,
+     * Stochastic gradient descent: shuffle,
      * then update immediately after each single example. A mini-batch optimizer
      * would accumulate gradients before updating; this intentionally does not.
      */
@@ -435,7 +452,7 @@ ClassificationMetrics evaluate_classifier(double **inputs, double **targets,
                                             int num_samples, Net *net,
                                             int *confusion_matrix) {
     /*
-     * This loop is the evaluation "meat." It performs forward passes only, so
+     * Evaluation performs forward passes only, so
      * learned weights and biases do not change (the activation workspace does).
      * It reports exact-class accuracy and mean cross-entropy.
      */
@@ -457,7 +474,8 @@ ClassificationMetrics evaluate_classifier(double **inputs, double **targets,
         }
         if (confusion_matrix) {
             /* Row = actual class, column = predicted class. */
-            confusion_matrix[actual * num_classes + predicted]++;
+            confusion_matrix[(size_t)actual * (size_t)num_classes +
+                             (size_t)predicted]++;
         }
         double probability = net->activations[output_layer][actual];
         /* Cross-entropy for a one-hot target is -log(P(actual class)). */
@@ -478,7 +496,8 @@ void print_confusion_matrix(const int *matrix, int num_classes) {
     for (int actual = 0; actual < num_classes; actual++) {
         printf("%4d ", actual);
         for (int predicted = 0; predicted < num_classes; predicted++) {
-            printf(" %4d", matrix[actual * num_classes + predicted]);
+            printf(" %4d", matrix[(size_t)actual * (size_t)num_classes +
+                                  (size_t)predicted]);
         }
         printf("\n");
     }
@@ -511,10 +530,14 @@ static int finite_parameters(const Net *net) {
         size_t weight_count = (size_t)net->layer_sizes[layer] *
                               (size_t)net->layer_sizes[layer + 1];
         for (size_t index = 0; index < weight_count; index++) {
-            if (!isfinite(net->weights[layer][index])) return 0;
+            if (!isfinite(net->weights[layer][index])) {
+                return 0;
+            }
         }
         for (int index = 0; index < net->layer_sizes[layer + 1]; index++) {
-            if (!isfinite(net->biases[layer][index])) return 0;
+            if (!isfinite(net->biases[layer][index])) {
+                return 0;
+            }
         }
     }
     return 1;
@@ -525,12 +548,13 @@ int save_net(const Net *net, const char *filename) {
         fprintf(stderr, "Cannot save a model with invalid parameters\n");
         return -1;
     }
-    FILE *file = fopen(filename, "wb");
-    if (!file) {
+    AtomicFile output;
+    if (open_atomic_file(&output, filename) != 0) {
         fprintf(stderr, "Failed to open model '%s' for writing: ", filename);
         perror(NULL);
         return -1;
     }
+    FILE *file = output.stream;
 
     /* Header and architecture come first so a reader can size the network. */
     uint32_t magic = MODEL_MAGIC;
@@ -556,13 +580,13 @@ int save_net(const Net *net, const char *filename) {
         size_t count = (size_t)net->layer_sizes[layer + 1];
         status = write_items(file, net->biases[layer], sizeof(double), count);
     }
-    if (fclose(file) != 0) {
-        status = -1;
+    if (status == 0) {
+        status = commit_atomic_file(&output);
+    } else {
+        discard_atomic_file(&output);
     }
     if (status != 0) {
-        /* Do not leave a truncated file looking like a successful save. */
         fprintf(stderr, "Failed while writing model '%s'\n", filename);
-        remove(filename);
     }
     return status;
 }

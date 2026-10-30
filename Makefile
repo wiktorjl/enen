@@ -8,8 +8,8 @@ LDLIBS := -lm
 
 BUILD_DIR := build
 MODEL_DIR := models
-COMMON_OBJECTS := $(BUILD_DIR)/nn.o $(BUILD_DIR)/dataset.o $(BUILD_DIR)/config.o
-WEB_API_OBJECTS := $(BUILD_DIR)/web_api.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/dataset.o
+COMMON_OBJECTS := $(BUILD_DIR)/nn.o $(BUILD_DIR)/dataset.o $(BUILD_DIR)/config.o $(BUILD_DIR)/atomic_file.o
+WEB_API_OBJECTS := $(BUILD_DIR)/web_api.o $(BUILD_DIR)/nn.o $(BUILD_DIR)/dataset.o $(BUILD_DIR)/atomic_file.o
 PROGRAMS := digits accuracy gym convert_optdigits
 WEB_MODULE := webapp/enen.js
 WEB_WASM := webapp/enen.wasm
@@ -34,7 +34,7 @@ $(BUILD_DIR)/accuracy: $(BUILD_DIR)/accuracy.o $(COMMON_OBJECTS) | $(BUILD_DIR)
 $(BUILD_DIR)/gym: $(BUILD_DIR)/gym.o $(COMMON_OBJECTS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
-$(BUILD_DIR)/convert_optdigits: $(BUILD_DIR)/convert_optdigits.o | $(BUILD_DIR)
+$(BUILD_DIR)/convert_optdigits: $(BUILD_DIR)/convert_optdigits.o $(BUILD_DIR)/atomic_file.o | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ $(LDLIBS) -o $@
 
 $(BUILD_DIR)/test_core: $(BUILD_DIR)/test_core.o $(COMMON_OBJECTS) | $(BUILD_DIR)
@@ -59,13 +59,18 @@ browser-check:
 	$(NODE) --check webapp/app.js
 	$(NODE) tests/test_browser.mjs
 
-$(WEB_MODULE) $(WEB_WASM) &: src/web_api.c src/web_api.h src/nn.c src/nn.h src/dataset.c src/dataset.h src/config.h Makefile
-	$(EMCC) $(CPPFLAGS) -O3 -std=c11 src/web_api.c src/nn.c src/dataset.c \
+# Emscripten writes both artifacts together. Keeping one primary target also
+# works with GNU Make before grouped targets were introduced in version 4.3.
+$(WEB_MODULE): src/web_api.c src/web_api.h src/nn.c src/nn.h src/dataset.c src/dataset.h src/config.h src/atomic_file.c src/atomic_file.h Makefile
+	$(EMCC) $(CPPFLAGS) -O3 -std=c11 src/web_api.c src/nn.c src/dataset.c src/atomic_file.c \
 		--no-entry -sWASM=1 -sMODULARIZE=1 -sEXPORT_NAME=createEnenModule \
 		-sENVIRONMENT=web -sFILESYSTEM=1 -sALLOW_MEMORY_GROWTH=1 \
 		-sEXPORTED_FUNCTIONS=$(WEB_EXPORTS) \
 		-sEXPORTED_RUNTIME_METHODS='["FS","ccall"]' -o $(WEB_MODULE)
 	chmod 0644 $(WEB_MODULE) $(WEB_WASM)
+
+$(WEB_WASM): $(WEB_MODULE)
+	@if [ ! -f "$@" ]; then $(MAKE) --always-make $(WEB_MODULE); fi
 
 $(WEB_SOURCE_ASSET): src/nn.c
 	cp $< $@
@@ -86,6 +91,7 @@ check: all $(BUILD_DIR)/test_core $(BUILD_DIR)/test_web_api
 	./$(BUILD_DIR)/convert_optdigits datasets/optdigits.tra $(BUILD_DIR)/train.csv datasets/optdigits.tes $(BUILD_DIR)/test.csv
 	cmp datasets/UCI_digits_train.csv $(BUILD_DIR)/train.csv
 	cmp datasets/UCI_digits_test.csv $(BUILD_DIR)/test.csv
+	sh tests/test_cli.sh
 
 clean:
 	rm -rf $(BUILD_DIR) $(WEB_MODULE) $(WEB_WASM) $(WEB_SOURCE_ASSET)

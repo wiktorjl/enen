@@ -10,14 +10,16 @@ output layer uses softmax and is trained with cross-entropy loss.
 
 ## Build and verify
 
-Requirements are a C11 compiler, GNU Make, and the standard math library.
+Requirements are a C11 compiler on a POSIX system (such as Linux or macOS),
+GNU Make, and the standard math library.
 
 ```bash
 make all
 make check
 ```
 
-Executables are written to `build/`. `make check` runs the core tests, drives
+Executables are written to `build/`. `make check` checks numerical gradients,
+checkpoint recovery, converter safety, and validation isolation, drives
 the browser-facing C API through a deterministic 25-epoch accuracy gate, and
 reconverts the raw UCI files for byte-for-byte comparison with the committed
 normalized splits.
@@ -35,7 +37,7 @@ python3 -m http.server 8080 --directory webapp
 
 Then open <http://localhost:8080>. `make web` requires Emscripten. The generated
 artifacts are included so the checked-out app can be served directly; rebuild
-them after changing `nn.c`, `dataset.c`, or `web_api.c`.
+them after changing `nn.c`, `dataset.c`, `web_api.c`, or `atomic_file.c`.
 
 Do not open `webapp/index.html` directly from the filesystem. A `file://` tab
 cannot fetch the Wasm module or datasets and will leave the controls disabled.
@@ -129,11 +131,23 @@ parameters and sees the same shuffle sequence.
 
 ```bash
 ./build/gym
-./build/gym --load models/digits.model
 ```
 
-The optional model is a starting point to clone and fine-tune; no temporary
-model files are created.
+Fine-tuning a saved model requires an explicit normalized validation CSV whose
+examples were **never used to train that model**:
+
+```bash
+./build/gym --load models/digits.model --validation path/to/unseen_validation.csv
+```
+
+With `--validation`, candidates train on all configured training rows and are
+scored on the separate file. The program rejects validation examples that also
+appear in the configured training or test data, even through a copied CSV.
+The caller must also keep these examples out of any earlier training of an
+imported model; the model format does not record its training history.
+Without `--validation`, `--load` is rejected because a saved model may already
+have learned the default validation slice. Each candidate clones its starting
+model in memory; the saved model is not modified.
 
 ## Dataset
 
@@ -165,7 +179,9 @@ To regenerate normalized files from raw UCI data:
 ```
 
 The converter divides each original pixel intensity by 16 and preserves the
-integer class label.
+integer class label. It rejects input/output aliases, including symlinks and
+hard links. Conversion publishes a complete temporary file with a rename, so a
+parse or write failure preserves any previous output.
 
 ## Configuration
 
@@ -202,13 +218,15 @@ The main source layout is:
 
 ```text
 src/nn.c, src/nn.h                 network, training, metrics, persistence
+src/atomic_file.c, src/atomic_file.h temporary writes and atomic replacement
 src/dataset.c, src/dataset.h       validated normalized-CSV loading
 src/config.c, src/config.h         strict configuration parsing
 src/digits.c                       primary train/evaluate workflow
 src/accuracy.c                     repeated-run statistics
 src/gym.c                          validation-based hyperparameter comparison
 src/convert_optdigits.c            raw UCI to normalized CSV conversion
-tests/test_core.c                  dataset, softmax, training, and model tests
+tests/test_core.c                  gradients, training, data, and checkpoint tests
+tests/test_cli.sh                  converter safety and tuning validation tests
 src/web_api.c, src/web_api.h       Emscripten-safe training/inference facade
 tests/test_web_api.c               deterministic digit-accuracy API gate
 tests/test_wasm.mjs                 generated Wasm runtime and accuracy gate
