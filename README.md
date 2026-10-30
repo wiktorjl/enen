@@ -1,4 +1,5 @@
 # enen — learning neural networks in C
+[Demo link](https://soto.wiktor.io/enen/)
 
 An educational implementation of a fully connected neural network in plain C.
 The aim is to make the path from inputs to predictions—and from a loss back to
