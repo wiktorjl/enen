@@ -1,176 +1,151 @@
-# UCI Digits Classifier in C
+# enen — learning neural networks in C
 
-An educational multiclass classifier for the UCI Optical Recognition of
-Handwritten Digits dataset. The implementation is plain C: no machine-learning
-frameworks, hidden binary-classification path, or synthetic fallback dataset.
+An educational implementation of a fully connected neural network in plain C.
+The aim is to make the path from inputs to predictions—and from a loss back to
+weight updates—small enough to read, trace, and experiment with. The network
+math lives in [src/nn.c](src/nn.c), with no machine-learning framework behind it.
 
-The model accepts 64 normalized pixels from an 8×8 image and predicts one of
-ten classes (digits 0 through 9). Hidden layers use sigmoid activations; the
-output layer uses softmax and is trained with cross-entropy loss.
+Handwritten-digit recognition is the demonstration: it gives the network a
+concrete task, a reproducible dataset, and a browser interface for watching
+training and trying inference. The same C implementation powers the native
+programs and the WebAssembly demo.
 
-## Build and verify
+## See learning and inference
 
-Requirements are a C11 compiler on a POSIX system (such as Linux or macOS),
+**Training:** the browser updates the C model and displays snapshots of its
+actual training examples, activations, and weights.
+
+![Training the C neural network in the browser, with epoch progress and live layer activations](docs/screenshots/training.png)
+
+**Inference:** a trained model predicts a digit from the drawing canvas. The
+interface shows class probabilities alongside the network's response.
+
+![Inference with the trained C neural network, showing a drawn digit, its predicted class, probabilities, and network activations](docs/screenshots/inference.png)
+
+The prediction card averages C predictions over nearby input variations. The
+network monitor shows a direct forward pass of the centered input, so the two
+views illustrate different parts of the inference pipeline.
+These screenshots show the configurable `64 → 48 → 24 → 10` experiment.
+
+## What the implementation teaches
+
+- **Representation:** layer sizes, flattened weight matrices, biases, and the
+  activation and delta buffers needed for learning.
+- **Initialization:** Xavier uniform weights and zero biases.
+- **Forward propagation:** weighted sums, sigmoid hidden layers, and a stable
+  softmax over mutually exclusive output classes.
+- **Backpropagation:** the softmax/cross-entropy derivative, the hidden-layer
+  chain rule, and why all deltas must be computed before updating weights.
+- **Optimization:** shuffled, per-sample stochastic gradient descent (SGD).
+- **Evaluation:** accuracy, mean cross-entropy, confusion matrices, and separate
+  training, validation, and test responsibilities.
+- **Persistence:** saving, validating, loading, and cloning learned parameters.
+
+Start with [the mathematical walkthrough](docs/DIGITS.md), then follow these
+parts of the source:
+
+1. [nn.h](src/nn.h) defines the network and its public operations.
+2. [nn.c](src/nn.c) implements allocation, forward propagation,
+   backpropagation, training, evaluation, and model serialization.
+3. [digits.c](src/digits.c) connects that API to a complete training experiment.
+4. [test_core.c](tests/test_core.c) checks backpropagation against numerical
+   loss derivatives, as well as learning and persistence behavior.
+
+For each training example, the essential learning step is:
+
+```c
+forward_pass(inputs[sample], net);
+backward_pass(targets[sample], net, learning_rate);
+```
+
+Hidden neurons compute `a = sigmoid(b + sum(input * weight))`. At the output,
+softmax converts logits into a class distribution. For a one-hot target,
+cross-entropy is `-log(p_true)` and its logit derivative is `p - target`.
+The code stores the negative gradient, `target - p`, so SGD uses `+=`:
+
+```text
+output_delta = target - probability
+hidden_delta = activation * (1 - activation) * sum(weight * next_delta)
+weight += learning_rate * source_activation * destination_delta
+bias   += learning_rate * destination_delta
+```
+
+The C core accepts configurable input, hidden-layer, and output sizes. It uses
+sigmoid hidden layers and a multiclass softmax output; the browser facade is
+specifically configured for the digit demonstration. This is a compact teaching
+implementation: extensions such as convolutions, minibatches, regularization,
+and adaptive optimizers are left for further experiments.
+
+## Build and run the demonstration
+
+Native requirements: a C11 compiler on a POSIX system such as Linux or macOS,
 GNU Make, and the standard math library.
 
 ```bash
 make all
 make check
-```
-
-Executables are written to `build/`. `make check` checks numerical gradients,
-checkpoint recovery, converter safety, and validation isolation, drives
-the browser-facing C API through a deterministic 25-epoch accuracy gate, and
-reconverts the raw UCI files for byte-for-byte comparison with the committed
-normalized splits.
-
-## Browser app (C / WebAssembly)
-
-The app in `webapp/` trains and uses `src/nn.c`; it does not contain a second
-neural-network implementation in JavaScript. Emscripten compiles the C core
-and its browser facade to `webapp/enen.js` and `webapp/enen.wasm`:
-
-```bash
-make web
-python3 -m http.server 8080 --directory webapp
-```
-
-Then open <http://localhost:8080>. `make web` requires Emscripten. The generated
-artifacts are included so the checked-out app can be served directly; rebuild
-them after changing `nn.c`, `dataset.c`, `web_api.c`, or `atomic_file.c`.
-
-Do not open `webapp/index.html` directly from the filesystem. A `file://` tab
-cannot fetch the Wasm module or datasets and will leave the controls disabled.
-
-`make web-check` rebuilds the artifacts, instantiates the generated Wasm through
-its Emscripten loader, trains it for the production 25 epochs, and enforces the
-digit-accuracy gate. It requires Node.js in addition to Emscripten.
-`make browser-check` serves the complete page in an installed Chromium-based
-browser and verifies startup, training, and recognition end to end.
-
-The left side contains Train and Recognize tabs; a narrower network monitor on
-the right remains visible in both modes. Train exposes several C network shapes,
-epoch counts, and learning rates, with the tested `64 → 128 → 64 → 10`,
-25-epoch, `0.05` recipe as the default. During training the monitor visualizes
-the real sample, activations, and weights copied from C at a readable cadence.
-During recognition it shows which nodes activate for the centered drawing. The
-**View nn.c** button opens the complete canonical network implementation in a
-source dialog and does not show unrelated files.
-The app fits the official training split plus normalized drawing variations, evaluates the
-official test split only after training, and runs a separate held-out drawing
-check before enabling the canvas. The exact in-memory C model that completes
-training handles every subsequent prediction. After a model passes those gates,
-its exact C serialization is stored in IndexedDB and restored on the next visit.
-That saved model is local to the browser profile and site origin; it is not tied
-to a server-side user account or shared with another browser, profile, or port.
-
-## Docker / Traefik deployment
-
-The production image rebuilds the C/WebAssembly artifacts with Emscripten, then
-copies only the required static files into an unprivileged Nginx image listening
-on port 8080. The supplied Compose stack attaches its single runtime container
-only to the existing external `proxy` network and publishes no host port.
-
-On the VPS, verify that Traefik's network exists and start the stack:
-
-```bash
-docker network inspect proxy
-docker compose up -d --build
-docker compose ps
-```
-
-The configured URL is <https://soto.wiktor.io/enen/>. Traefik first redirects
-the exact `/enen` path to `/enen/`, then strips the prefix before forwarding to
-Nginx. The trailing-slash redirect is required because the browser app uses
-relative CSS, JavaScript, Wasm, data, and source URLs. The router uses the
-`websecure` entrypoint and `letsencrypt` certificate resolver and assumes that
-HTTP-to-HTTPS redirection is already handled by the VPS's Traefik configuration.
-
-No server volume is required: validated models remain in each visitor's browser
-profile through IndexedDB. To use a registry later, replace `image: enen:latest`
-in `compose.yaml` with the registry image and remove or omit the `build` block on
-the VPS.
-
-## Train and evaluate
-
-```bash
 ./build/digits
 ```
 
-This command:
-
-1. Loads `conf/digits.conf`.
-2. Trains a newly initialized network on `datasets/UCI_digits_train.csv`.
-3. Reports accuracy, cross-entropy, and a confusion matrix on the held-out test
-   split.
-4. Saves the trained network to `models/digits.model`.
-
+Executables are written to `build/`. The digit demonstration loads
+`conf/digits.conf`, trains on the training split, reports held-out test accuracy,
+cross-entropy, and a confusion matrix, then saves `models/digits.model`.
 Evaluate a saved model without retraining:
 
 ```bash
 ./build/digits --load models/digits.model
 ```
 
-The loader rejects malformed models and models whose input or output dimensions
-do not match the configured dataset.
+### Browser laboratory
 
-## Analysis programs
-
-`accuracy` repeats the complete train/test experiment with independent random
-initializations and summarizes the distribution of held-out accuracies:
+Serve the included browser artifacts over HTTP:
 
 ```bash
-./build/accuracy 10
-./build/accuracy --load models/digits.model
+python3 -m http.server 8080 --directory webapp
 ```
 
-`gym` compares learning rates and epoch counts. It reserves every fifth row of
-the configured training split for validation so that the test split does not
-influence hyperparameter selection. Each candidate starts from identical model
-parameters and sees the same shuffle sequence.
+Open <http://localhost:8080>. Use **Train** to choose a network shape, learning
+rate, and epoch count, then watch the network learn. **Pause animation** freezes
+visual updates while C training continues; **Finish without animation** finishes
+all selected epochs with larger calls into C. After the model passes the quality
+checks, use **Recognize** to draw, erase, and inspect predictions. **View nn.c**
+opens the canonical network implementation beside the experiment.
+
+[Emscripten](https://emscripten.org/) is required to rebuild the browser assets:
 
 ```bash
-./build/gym
+make web
 ```
 
-Fine-tuning a saved model requires an explicit normalized validation CSV whose
-examples were **never used to train that model**:
+Rebuild after changing the C core, dataset loader, persistence helper, or browser
+facade. `webapp/enen.js` and `webapp/enen.wasm` are generated from those sources;
+JavaScript handles the interface and drawing normalization. Forward propagation,
+backpropagation, and learned parameters stay in C. See
+[webapp/README.md](webapp/README.md) for the browser workflow in detail.
 
-```bash
-./build/gym --load models/digits.model --validation path/to/unseen_validation.csv
-```
+Use HTTP rather than opening `index.html` directly: a `file://` tab cannot fetch
+the Wasm module or datasets. Validated models are kept in IndexedDB, local to
+the browser profile and site origin, and checked again when restored.
 
-With `--validation`, candidates train on all configured training rows and are
-scored on the separate file. The program rejects validation examples that also
-appear in the configured training or test data, even through a copied CSV.
-The caller must also keep these examples out of any earlier training of an
-imported model; the model format does not record its training history.
-Without `--validation`, `--load` is rejected because a saved model may already
-have learned the default validation slice. Each candidate clones its starting
-model in memory; the saved model is not modified.
+## The digit-recognition use case
 
-## Dataset
-
-The repository contains the official train/test organization in two forms:
-
-- `datasets/optdigits.tra`: 3,823 original UCI training rows, with pixel
-  intensities from 0 through 16.
-- `datasets/optdigits.tes`: 1,797 original UCI test rows.
-- `datasets/UCI_digits_train.csv`: normalized training rows used by the model.
-- `datasets/UCI_digits_test.csv`: normalized test rows used by the model.
-
-Each normalized row has exactly 65 comma-separated fields and no header:
+Each example is an 8×8 grayscale image with one of ten labels, 0–9. The default
+experiment has 17,226 trainable parameters:
 
 ```text
-pixel_0,pixel_1,...,pixel_63,label
+64 inputs → 128 sigmoid units → 64 sigmoid units → 10-way softmax
 ```
 
-Pixels must be finite values in `[0, 1]`; labels must be integers from `0` to
-`9`. The loader validates every field and converts each label to a ten-element
-one-hot target. A malformed or empty dataset is an error rather than a partially
-initialized training sample.
+The repository includes the official UCI optical-digits split in two forms:
 
-To regenerate normalized files from raw UCI data:
+- `datasets/optdigits.tra` and `datasets/optdigits.tes`: 3,823 training and
+  1,797 test rows, with integer pixel intensities from 0 through 16.
+- `datasets/UCI_digits_train.csv` and `datasets/UCI_digits_test.csv`: the same
+  rows with each pixel divided by 16. Every normalized row contains 64 features
+  in `[0, 1]`, followed by its integer class label, with no header.
+
+The loader validates every field and produces one-hot targets. Regenerate the
+normalized CSVs with:
 
 ```bash
 ./build/convert_optdigits \
@@ -178,14 +153,18 @@ To regenerate normalized files from raw UCI data:
   datasets/optdigits.tes datasets/UCI_digits_test.csv
 ```
 
-The converter divides each original pixel intensity by 16 and preserves the
-integer class label. It rejects input/output aliases, including symlinks and
-hard links. Conversion publishes a complete temporary file with a rename, so a
-parse or write failure preserves any previous output.
+Conversion rejects input/output aliases, including symbolic and hard links.
+Both CSV conversion and model saving use temporary files and atomic replacement
+so that a failed write preserves the previous output.
 
-## Configuration
+The browser additionally trains on 800 generated drawing variations and checks
+160 separate drawing variations before enabling recognition. These pass through
+the same centering and normalization used for the live drawing canvas; the
+original UCI test split remains outside training.
 
-All programs read `conf/digits.conf`:
+### Change the experiment
+
+All native programs read `conf/digits.conf`:
 
 ```ini
 input_size=64
@@ -197,41 +176,68 @@ train_dataset=datasets/UCI_digits_train.csv
 test_dataset=datasets/UCI_digits_test.csv
 ```
 
-The parser requires each field exactly once. Sizes and epoch counts must be
-positive, the output must contain at least two classes, the learning rate must
-be in `(0, 10]`, and both dataset paths must be nonempty.
+Each field is required exactly once. Hidden widths, learning rate, and epochs
+are useful starting points for experiments; keep dataset dimensions consistent
+with the network. Saved models must match the configured input and output sizes.
 
-## Implementation
+`accuracy` repeats independently initialized training runs and summarizes their
+held-out accuracies. `gym` compares learning rates and epoch counts, reserving
+every fifth training row for validation. Candidates share an initialization
+and shuffle seed so their settings can be compared fairly.
 
-The default architecture contains 17,226 trainable parameters:
-
-```text
-64 inputs -> 128 hidden -> 64 hidden -> 10 class probabilities
+```bash
+./build/accuracy 10
+./build/accuracy --load models/digits.model
+./build/gym
 ```
 
-Weights use Xavier initialization. Training performs per-sample stochastic
-gradient updates after shuffling the sample order each epoch. Softmax produces
-one normalized distribution across all ten classes, prediction uses its argmax,
-and cross-entropy measures how much probability was assigned to the true class.
+Tuning from a saved model requires a separate normalized validation CSV:
 
-The main source layout is:
-
-```text
-src/nn.c, src/nn.h                 network, training, metrics, persistence
-src/atomic_file.c, src/atomic_file.h temporary writes and atomic replacement
-src/dataset.c, src/dataset.h       validated normalized-CSV loading
-src/config.c, src/config.h         strict configuration parsing
-src/digits.c                       primary train/evaluate workflow
-src/accuracy.c                     repeated-run statistics
-src/gym.c                          validation-based hyperparameter comparison
-src/convert_optdigits.c            raw UCI to normalized CSV conversion
-tests/test_core.c                  gradients, training, data, and checkpoint tests
-tests/test_cli.sh                  converter safety and tuning validation tests
-src/web_api.c, src/web_api.h       Emscripten-safe training/inference facade
-tests/test_web_api.c               deterministic digit-accuracy API gate
-tests/test_wasm.mjs                 generated Wasm runtime and accuracy gate
-webapp/                            minimal C/Wasm training and drawing UI
+```bash
+./build/gym --load models/digits.model --validation path/to/unseen_validation.csv
 ```
 
-See [docs/DIGITS.md](docs/DIGITS.md) for the mathematical walkthrough and the
-exact train/validation/test responsibilities.
+Those examples must have been withheld from **all prior training** of the model.
+With explicit validation, candidates fit the full configured training dataset;
+`gym` rejects validation examples that overlap configured training or test data,
+including copied rows. The model format does not record training history, so
+the caller must also ensure independence from any earlier imported data.
+
+## Verification
+
+```bash
+make check
+make web-check
+make browser-check
+```
+
+- `check` verifies data loading, numerical gradients, learning, model round trips,
+  failed-save recovery, converter safety, validation isolation, and exact CSV
+  regeneration. It also runs the native browser-API accuracy gate.
+- `web-check` rebuilds and exercises the generated Wasm, checks JavaScript
+  syntax, and verifies that the browser's source and dataset copies match the
+  canonical files. It requires Emscripten and Node.js.
+- `browser-check` exercises startup, training, inference, local model storage,
+  recovery, and responsive layouts in Chrome or Chromium. It requires Node.js;
+  set `BROWSER` to the browser executable if it is not on `PATH`.
+
+## Deploy the browser demo
+
+The Docker image rebuilds the C/Wasm artifacts and serves static files with
+unprivileged Nginx on port 8080. The supplied Compose stack uses the existing
+external `proxy` network and publishes no host port:
+
+```bash
+docker network inspect proxy
+docker compose up -d --build
+docker compose ps
+```
+
+The supplied Traefik labels serve <https://soto.wiktor.io/enen/> using the
+`websecure` entrypoint and `letsencrypt` resolver. They redirect `/enen` to
+`/enen/` before stripping the prefix, preserving relative asset URLs. HTTP-to-HTTPS
+redirection is assumed to be configured in Traefik. Models remain in visitors'
+browser storage, so no server model volume is required.
+
+To deploy from a registry, replace `image: enen:latest` in `compose.yaml` and
+omit the `build` block on the server.
