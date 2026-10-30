@@ -19,20 +19,40 @@ typedef struct {
 } DatasetView;
 
 static void print_help(const char *program_name) {
-    printf("Usage: %s [--load MODEL]\n\n", program_name);
+    printf("Usage: %s [--validation CSV] [--load MODEL]\n\n", program_name);
     printf("Compare learning rates and epoch counts for UCI digit classification.\n");
     printf("One fifth of the configured training split is reserved for validation;\n");
     printf("the configured test split is never used for parameter selection.\n\n");
-    printf("  --load MODEL  Fine-tune clones of a saved starting model\n");
-    printf("  --help        Display this help message\n");
+    printf("  --validation CSV  Use a separate normalized validation dataset\n");
+    printf("  --load MODEL      Fine-tune clones; requires --validation\n");
+    printf("  --help            Display this help message\n\n");
+    printf("Explicit validation rows must be disjoint from training and test data,\n");
+    printf("and must never have been used to train the starting model.\n");
+}
+
+static int copy_dataset_view(const Dataset *dataset, DatasetView *view) {
+    view->count = dataset->num_samples;
+    size_t bytes = sizeof(*view->inputs) * (size_t)view->count;
+    view->inputs = malloc(bytes);
+    view->targets = malloc(bytes);
+    if (!view->inputs || !view->targets) {
+        perror("Failed to allocate dataset view");
+        return -1;
+    }
+    memcpy(view->inputs, dataset->inputs, bytes);
+    memcpy(view->targets, dataset->targets, bytes);
+    return 0;
 }
 
 static int create_training_validation_views(const Dataset *dataset,
                                             DatasetView *training,
                                             DatasetView *validation) {
-    training->count = dataset->num_samples -
-                      (dataset->num_samples + VALIDATION_INTERVAL - 1) /
-                          VALIDATION_INTERVAL;
+    if (dataset->num_samples < 2) {
+        fprintf(stderr, "Tuning needs at least two samples to make a holdout\n");
+        return -1;
+    }
+    int validation_count = 1 + (dataset->num_samples - 1) / VALIDATION_INTERVAL;
+    training->count = dataset->num_samples - validation_count;
     validation->count = dataset->num_samples - training->count;
     training->inputs = malloc(sizeof(*training->inputs) *
                               (size_t)training->count);
@@ -64,6 +84,24 @@ static int create_training_validation_views(const Dataset *dataset,
     return 0;
 }
 
+/* File names cannot establish independence: another CSV can contain exactly
+ * the same examples. Compare feature values, even if the labels differ. */
+static int datasets_overlap(const Dataset *left, const Dataset *right) {
+    for (int first = 0; first < left->num_samples; first++) {
+        for (int second = 0; second < right->num_samples; second++) {
+            int feature = 0;
+            while (feature < left->input_size &&
+                   left->inputs[first][feature] == right->inputs[second][feature]) {
+                feature++;
+            }
+            if (feature == left->input_size) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static void free_view(DatasetView *view) {
     free(view->inputs);
     free(view->targets);
@@ -74,6 +112,7 @@ static void free_view(DatasetView *view) {
 
 int main(int argc, char **argv) {
     const char *model_path = NULL;
+    const char *validation_path = NULL;
     for (int argument = 1; argument < argc; argument++) {
         if (strcmp(argv[argument], "--help") == 0 ||
             strcmp(argv[argument], "-h") == 0) {
@@ -85,8 +124,19 @@ int main(int argc, char **argv) {
             model_path = argv[++argument];
             continue;
         }
+        if (strcmp(argv[argument], "--validation") == 0 &&
+            argument + 1 < argc && !validation_path) {
+            validation_path = argv[++argument];
+            continue;
+        }
         fprintf(stderr, "Unknown or incomplete option: %s\n", argv[argument]);
         print_help(argv[0]);
+        return EXIT_FAILURE;
+    }
+    if (model_path && !validation_path) {
+        fprintf(stderr,
+                "--load requires --validation CSV: the starting model may "
+                "already have learned the default validation rows.\n");
         return EXIT_FAILURE;
     }
 
@@ -95,36 +145,49 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     Dataset dataset = {0};
-    if (load_dataset(config->train_dataset_path, config->input_size,
-                     config->output_size, &dataset) != 0) {
-        free_config(config);
-        return EXIT_FAILURE;
-    }
-
+    Dataset held_out = {0};
+    Dataset test = {0};
     DatasetView training = {0};
     DatasetView validation = {0};
-    if (create_training_validation_views(&dataset, &training, &validation) != 0) {
-        free_view(&training);
-        free_view(&validation);
-        free_dataset(&dataset);
-        free_config(config);
-        return EXIT_FAILURE;
+    Net *base_net = NULL;
+    int status = EXIT_FAILURE;
+    if (load_dataset(config->train_dataset_path, config->input_size,
+                     config->output_size, &dataset) != 0) {
+        goto cleanup;
+    }
+
+    if (validation_path) {
+        if (load_dataset(validation_path, config->input_size, config->output_size,
+                         &held_out) != 0 ||
+            load_dataset(config->test_dataset_path, config->input_size,
+                         config->output_size, &test) != 0) {
+            goto cleanup;
+        }
+        if (datasets_overlap(&held_out, &dataset) ||
+            datasets_overlap(&held_out, &test)) {
+            fprintf(stderr,
+                    "Validation examples overlap the configured training or "
+                    "test data; supply an independent validation dataset.\n");
+            goto cleanup;
+        }
+        if (copy_dataset_view(&dataset, &training) != 0 ||
+            copy_dataset_view(&held_out, &validation) != 0) {
+            goto cleanup;
+        }
+    } else if (create_training_validation_views(&dataset, &training,
+                                               &validation) != 0) {
+        goto cleanup;
     }
 
     unsigned int experiment_seed = (unsigned int)time(NULL);
     srand(experiment_seed);
-    Net *base_net = model_path ? load_net(model_path) : create_net(config);
+    base_net = model_path ? load_net(model_path) : create_net(config);
     if (!base_net || !net_matches_dimensions(
             base_net, config->input_size, config->output_size)) {
         if (base_net) {
             fprintf(stderr, "Model dimensions do not match the dataset\n");
         }
-        free_net(base_net);
-        free_view(&training);
-        free_view(&validation);
-        free_dataset(&dataset);
-        free_config(config);
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     const double learning_rates[] = {0.01, 0.05, 0.1, 0.5};
@@ -180,11 +243,15 @@ int main(int argc, char **argv) {
     printf("\nBest validation result: %.2f%% accuracy, %.6f cross-entropy\n",
            best_accuracy, best_loss);
     printf("Learning rate: %.2f\nEpochs: %d\n", best_rate, best_epochs);
+    status = best_accuracy >= 0.0 ? EXIT_SUCCESS : EXIT_FAILURE;
 
+cleanup:
     free_net(base_net);
     free_view(&training);
     free_view(&validation);
     free_dataset(&dataset);
+    free_dataset(&held_out);
+    free_dataset(&test);
     free_config(config);
-    return best_accuracy >= 0.0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return status;
 }

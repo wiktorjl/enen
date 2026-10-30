@@ -75,8 +75,13 @@ A connection from input `i` to output `j` in one layer transition is stored in
 a flat row-major matrix:
 
 ```c
-weights[layer][i * next_size + j]
+weights[layer][(size_t)i * (size_t)next_size + (size_t)j]
 ```
+
+The implementation calls these indices `source` and `destination`: they name
+neurons on either side of a connection, rather than always referring to the
+network's input and output layers. Matrix dimensions and indices use `size_t`
+so their multiplication does not overflow a signed `int` for large networks.
 
 The parameter count is:
 
@@ -157,6 +162,14 @@ delta_i = error_i * a_i * (1 - a_i)
 Only hidden and output deltas are needed. Computing a delta for the raw input
 layer would not affect any parameter and is intentionally omitted.
 
+`backward_pass()` keeps three visible steps: compute output deltas, propagate
+hidden deltas, then update weights and biases. Every hidden delta must use the
+same weights as the forward pass. Changing a weight before propagating through
+it would differentiate a different network. `tests/test_core.c` checks this
+chain rule independently by comparing every parameter's update against the
+finite difference `(loss(w + h) - loss(w - h)) / (2h)` on a small network with
+two hidden layers.
+
 ## 5. Stochastic training
 
 `train_classifier()` creates one array of sample indices, shuffles it with the
@@ -197,7 +210,13 @@ The three executable workflows keep their responsibilities separate:
 `gym` clones one starting network for each candidate and resets the training
 shuffle seed. Consequently, candidates differ by learning rate and epoch count,
 not by an accidentally easier initialization or sample order. When `--load` is
-used, the saved network is that common starting point.
+used, the saved network is that common starting point, and `--validation CSV`
+is required. The default validation slice is unsafe for a model produced by
+`digits`, since `digits` has already fitted those rows. An explicit validation
+file replaces that slice, while training uses the full configured training
+dataset. Its features must not overlap either configured dataset, and the
+caller must have withheld it from all earlier training of the saved model.
+The test file is loaded only to detect overlap, never to score a tuning recipe.
 
 ## 7. Model persistence
 
@@ -220,6 +239,12 @@ is evaluated, its input width and class count must match the dataset config.
 The format is intentionally small and educational. It stores native integer and
 double representations, so it is not designed as a portable interchange format
 between architectures with different byte order or floating-point formats.
+
+Saving uses `atomic_file.c` to create a unique temporary file beside the final
+checkpoint. Only after every write and the final close succeed does a rename
+replace the checkpoint. A failed save therefore preserves the previous model;
+this is replacement safety, not a guarantee of durability across a power loss.
+The converter shares the same mechanism to protect earlier normalized CSVs.
 
 ## 8. Configuration
 
@@ -249,9 +274,13 @@ make check
 ```
 
 The tests verify both committed datasets, every represented class, normalized
-features, one-hot targets, softmax normalization, loss reduction during
-training, model cloning, and a save/load round trip. They also regenerate both
-normalized CSVs from the raw UCI files and compare them byte for byte.
+features, one-hot targets, softmax normalization, finite-difference gradients,
+loss reduction during training, model cloning, and a save/load round trip.
+A child process with a file-size limit simulates a failed checkpoint write and
+checks that the previous model survives unchanged. CLI tests check path aliases,
+failed conversions, and separate validation data for saved-model tuning.
+They also regenerate both normalized CSVs from the raw UCI files and compare
+them byte for byte.
 
 Train and evaluate the default classifier:
 

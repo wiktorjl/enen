@@ -1,8 +1,13 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#include "atomic_file.h"
 
 #define FEATURE_COUNT 64
 #define MAX_LINE_LENGTH 4096
@@ -67,13 +72,36 @@ static int convert_file(const char *input_path, const char *output_path) {
         return -1;
     }
 
-    FILE *output = fopen(output_path, "w");
-    if (!output) {
+    /* Different spellings, symlinks, and hard links can name the same file.
+     * Compare identity before writing, rather than trusting path strings. */
+    struct stat input_info;
+    struct stat output_info;
+    if (fstat(fileno(input), &input_info) != 0) {
+        perror("Failed to inspect input file");
+        fclose(input);
+        return -1;
+    }
+    if (stat(output_path, &output_info) == 0) {
+        if (input_info.st_dev == output_info.st_dev &&
+            input_info.st_ino == output_info.st_ino) {
+            fprintf(stderr, "Input and output name the same file: %s\n", input_path);
+            fclose(input);
+            return -1;
+        }
+    } else if (errno != ENOENT) {
+        perror("Failed to inspect output file");
+        fclose(input);
+        return -1;
+    }
+
+    AtomicFile converted;
+    if (open_atomic_file(&converted, output_path) != 0) {
         fprintf(stderr, "Failed to open output file '%s': ", output_path);
         perror(NULL);
         fclose(input);
         return -1;
     }
+    FILE *output = converted.stream;
 
     char line[MAX_LINE_LENGTH];
     size_t line_number = 0;
@@ -124,17 +152,18 @@ static int convert_file(const char *input_path, const char *output_path) {
         fprintf(stderr, "Failed to close input file '%s'\n", input_path);
         status = -1;
     }
-    if (fclose(output) != 0) {
-        fprintf(stderr, "Failed to close output file '%s'\n", output_path);
-        status = -1;
+    if (status == 0) {
+        status = commit_atomic_file(&converted);
+        if (status != 0) {
+            fprintf(stderr, "Failed to publish output file '%s'\n", output_path);
+        }
+    } else {
+        discard_atomic_file(&converted);
     }
 
     if (status == 0) {
         printf("Converted %zu samples: %s -> %s\n", sample_count,
                input_path, output_path);
-    } else {
-        /* Never leave a partial CSV that could later be mistaken for valid data. */
-        remove(output_path);
     }
     return status;
 }

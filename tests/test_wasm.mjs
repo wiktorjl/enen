@@ -236,6 +236,30 @@ try {
     "Wasm saves a valid model at an epoch boundary",
   );
   const savedModelBytes = wasm.FS.readFile(persistencePaths[0]);
+  const originalRename = wasm.FS.rename;
+  try {
+    wasm.FS.rename = () => {
+      throw new wasm.FS.ErrnoError(28);
+    };
+    assert.equal(
+      saveModel(persistencePaths[0]),
+      -1,
+      "Wasm reports a filesystem failure while replacing a checkpoint",
+    );
+  } finally {
+    wasm.FS.rename = originalRename;
+  }
+  assert.deepEqual(
+    wasm.FS.readFile(persistencePaths[0]),
+    savedModelBytes,
+    "a failed Wasm save preserves the previous checkpoint byte for byte",
+  );
+  assert.ok(
+    !wasm.FS.readdir("/").some((name) => name.includes(".tmp.")),
+    "failed Wasm replacement removes its temporary file",
+  );
+  assert.equal(saveModel(persistencePaths[0]), 0);
+  assert.deepEqual(wasm.FS.readFile(persistencePaths[0]), savedModelBytes);
   const trailingModelBytes = new Uint8Array(savedModelBytes.length + 1);
   trailingModelBytes.set(savedModelBytes);
   trailingModelBytes[trailingModelBytes.length - 1] = 0xa5;

@@ -1,7 +1,8 @@
 # Browser digit recognizer
 
 This is a minimal interface around the repository's C classifier. Emscripten
-compiles `src/nn.c`, `src/dataset.c`, and `src/web_api.c` into `enen.wasm`.
+compiles `src/nn.c`, `src/dataset.c`, `src/atomic_file.c`, and `src/web_api.c`
+into `enen.wasm`.
 JavaScript loads data, normalizes canvas pixels, and updates the interface; it
 does not implement forward propagation, backpropagation, or model weights.
 
